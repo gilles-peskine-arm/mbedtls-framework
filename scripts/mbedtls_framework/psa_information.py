@@ -154,6 +154,7 @@ def hack_dependencies_not_implemented(dependencies: List[str]) -> None:
         dep = dep.lstrip('!')
         if dep.startswith('PSA_WANT') and dep not in _implemented_dependencies:
             dependencies.append('DEPENDENCY_NOT_IMPLEMENTED_YET_' + dep)
+    dependencies.sort()
 
 def tweak_key_pair_dependency(dep: str, usage: str):
     """
