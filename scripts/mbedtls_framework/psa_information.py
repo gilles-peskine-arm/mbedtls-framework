@@ -220,4 +220,5 @@ class TestCase(test_case.TestCase):
         if self.key_bits is not None:
             dependencies = finish_family_dependencies(dependencies, self.key_bits)
             dependencies = fix_key_pair_dependencies(dependencies, 'BASIC')
+        hack_dependencies_not_implemented(dependencies)
         self.dependencies = sorted(self.dependencies + dependencies)
