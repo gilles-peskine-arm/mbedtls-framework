@@ -213,12 +213,13 @@ class TestCase(test_case.TestCase):
         super().set_description(description)
         self.dependencies += generate_deps_from_description(description)
 
-    def set_arguments(self, arguments: List[str]) -> None:
+    def set_arguments(self, arguments: List[str],
+                      usage: Optional[str] = 'BASIC') -> None:
         """Set test case arguments and automatically infer dependencies."""
         super().set_arguments(arguments)
         dependencies = automatic_dependencies(*arguments)
         if self.key_bits is not None:
             dependencies = finish_family_dependencies(dependencies, self.key_bits)
-            dependencies = fix_key_pair_dependencies(dependencies, 'BASIC')
+            dependencies = fix_key_pair_dependencies(dependencies, usage)
         hack_dependencies_not_implemented(dependencies)
         self.dependencies = sorted(self.dependencies + dependencies)

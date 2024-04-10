@@ -141,21 +141,18 @@ class KeyTypeNotSupported:
 
 def test_case_for_key_generation(
         key_type: str, bits: int,
-        dependencies: List[str],
         *args: str,
         result: str = ''
 ) -> test_case.TestCase:
     """Return one test case exercising a key generation.
     """
-    psa_information.hack_dependencies_not_implemented(dependencies)
-    tc = test_case.TestCase()
+    tc = psa_information.TestCase()
     short_key_type = crypto_knowledge.short_expression(key_type)
     tc.set_description('PSA {} {}-bit'
                        .format(short_key_type, bits))
-    tc.set_dependencies(sorted(dependencies))
     tc.set_function('generate_key')
-    tc.set_arguments([key_type] + list(args) + [result])
-
+    tc.set_key_bits(bits)
+    tc.set_arguments([key_type] + list(args) + [result], usage='GENERATE')
     return tc
 
 class KeyGenerate:
@@ -179,32 +176,26 @@ class KeyGenerate:
         PSA_ERROR_INVALID_ARGUMENT status is expected.
         """
         result = 'PSA_SUCCESS'
-
-        import_dependencies = [psa_information.psa_want_symbol(kt.name)]
-        if kt.params is not None:
-            import_dependencies += [psa_information.psa_want_symbol(sym)
-                                    for i, sym in enumerate(kt.params)]
         if kt.name.endswith('_PUBLIC_KEY'):
-            # The library checks whether the key type is a public key generically,
-            # before it reaches a point where it needs support for the specific key
-            # type, so it returns INVALID_ARGUMENT for unsupported public key types.
-            generate_dependencies = []
             result = 'PSA_ERROR_INVALID_ARGUMENT'
-        else:
-            generate_dependencies = \
-                psa_information.fix_key_pair_dependencies(import_dependencies, 'GENERATE')
         for bits in kt.sizes_to_test():
-            if kt.name == 'PSA_KEY_TYPE_RSA_KEY_PAIR':
-                size_dependency = "PSA_VENDOR_RSA_GENERATE_MIN_KEY_BITS <= " +  str(bits)
-                test_dependencies = generate_dependencies + [size_dependency]
-            else:
-                test_dependencies = generate_dependencies
-            yield test_case_for_key_generation(
+            tc = test_case_for_key_generation(
                 kt.expression, bits,
-                psa_information.finish_family_dependencies(test_dependencies, bits),
                 str(bits),
                 result
             )
+            if result == 'PSA_ERROR_INVALID_ARGUMENT':
+                # The library checks whether the key type is a public key generically,
+                # before it reaches a point where it needs support for the specific key
+                # type, so it returns INVALID_ARGUMENT for unsupported public key types.
+                tc.set_dependencies([])
+            elif '_KEY_PAIR' in kt.name:
+                if kt.name == 'PSA_KEY_TYPE_RSA_KEY_PAIR':
+                    size_dependency = \
+                        "PSA_VENDOR_RSA_GENERATE_MIN_KEY_BITS <= " + str(bits)
+                    tc.dependencies.append(size_dependency)
+                    tc.dependencies.sort()
+            yield tc
 
     def test_cases_for_key_generation(self) -> Iterator[test_case.TestCase]:
         """Generate test cases that exercise the generation of keys."""
