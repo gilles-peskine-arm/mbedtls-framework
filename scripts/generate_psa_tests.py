@@ -488,16 +488,9 @@ class StorageFormat:
         correctly.
         """
         verb = 'save' if self.forward else 'read'
-        tc = test_case.TestCase()
+        tc = psa_information.TestCase()
         tc.set_description(verb + ' ' + key.description)
-        dependencies = psa_information.automatic_dependencies(
-            key.lifetime.string, key.type.string,
-            key.alg.string, key.alg2.string,
-        )
-        dependencies = psa_information.finish_family_dependencies(dependencies, key.bits)
-        dependencies += psa_information.generate_deps_from_description(key.description)
-        dependencies = psa_information.fix_key_pair_dependencies(dependencies, 'BASIC')
-        tc.set_dependencies(sorted(dependencies))
+        tc.set_key_bits(key.bits)
         tc.set_function('key_storage_' + verb)
         if self.forward:
             extra_arguments = []

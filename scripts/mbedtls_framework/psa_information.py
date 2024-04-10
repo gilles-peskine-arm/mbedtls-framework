@@ -11,6 +11,7 @@ from collections import OrderedDict
 from typing import FrozenSet, List, Optional
 
 from . import macro_collector
+from . import test_case
 
 
 class Information:
@@ -180,5 +181,35 @@ def fix_key_pair_dependencies(dep_list: List[str], usage: str):
     new_list = [new_deps
                 for dep in dep_list
                 for new_deps in tweak_key_pair_dependency(dep, usage)]
-
     return new_list
+
+
+class TestCase(test_case.TestCase):
+    """A PSA test case with automatically inferred dependencies."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.key_bits = None #type: Optional[int]
+
+    def set_key_bits(self, key_bits: Optional[int]) -> None:
+        """Use the given key size for automatic dependency generation.
+
+        Call this function before set_arguments() if relevant.
+
+        This is only relevant for ECC and DH keys. For other key types,
+        this information is ignored.
+        """
+        self.key_bits = key_bits
+
+    def set_description(self, description: str) -> None:
+        super().set_description(description)
+        self.dependencies += generate_deps_from_description(description)
+
+    def set_arguments(self, arguments: List[str]) -> None:
+        """Set test case arguments and automatically infer dependencies."""
+        super().set_arguments(arguments)
+        dependencies = automatic_dependencies(*arguments)
+        if self.key_bits is not None:
+            dependencies = finish_family_dependencies(dependencies, self.key_bits)
+            dependencies = fix_key_pair_dependencies(dependencies, 'BASIC')
+        self.dependencies = sorted(self.dependencies + dependencies)
