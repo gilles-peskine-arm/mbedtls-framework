@@ -115,8 +115,11 @@ def dependencies_of_setting(cfg: config_common.Config,
             if cfg.known(super_name):
                 return super_name
     m = PSA_WANT_KEY_TYPE_KEY_PAIR_RE.match(name)
-    if m and m.group('operation') != 'BASIC':
-        return m.group('prefix') + 'BASIC'
+    if m:
+        deps = 'MBEDTLS_PSA_CRYPTO_CLIENT'
+        if m.group('operation') != 'BASIC':
+            deps += ':' + m.group('prefix') + 'BASIC'
+        return deps
     return None
 
 def conditions_for_setting(cfg: config_common.Config,
