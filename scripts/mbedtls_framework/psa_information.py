@@ -25,6 +25,9 @@ class Information:
     ) -> None:
         # Mbed TLS does not support finite-field DSA.
         # Don't attempt to generate any related test case.
+        # The corresponding test cases would be commented out anyway,
+        # but for DSA, we don't have enough support in the test scripts
+        # to generate these test cases.
         constructors.key_types.discard('PSA_KEY_TYPE_DSA_KEY_PAIR')
         constructors.key_types.discard('PSA_KEY_TYPE_DSA_PUBLIC_KEY')
 
