@@ -7,7 +7,7 @@
 
 import os
 import re
-from typing import FrozenSet, List, Optional, Set
+from typing import FrozenSet, Iterable, List, Optional, Set
 
 from . import psa_information
 from . import test_case
@@ -26,7 +26,7 @@ def read_implemented_dependencies(acc: Set[str], filename: str) -> None:
 
 _implemented_dependencies = None #type: Optional[FrozenSet[str]] #pylint: disable=invalid-name
 
-def find_dependencies_not_implemented(dependencies: List[str]) -> List[str]:
+def find_dependencies_not_implemented(dependencies: Iterable[str]) -> List[str]:
     """List the dependencies that are not implemented."""
     global _implemented_dependencies #pylint: disable=global-statement,invalid-name
     if _implemented_dependencies is None:
@@ -152,11 +152,12 @@ class TestCase(test_case.TestCase):
         """Set test case arguments and automatically infer dependencies."""
         super().set_arguments(arguments)
         dependencies = self.infer_dependencies(arguments)
-        for i in range(len(dependencies)): #pylint: disable=consider-using-enumerate
-            if dependencies[i] in self.negated_dependencies:
-                dependencies[i] = '!' + dependencies[i]
-        self.skip_if_any_not_implemented(dependencies)
-        self.automatic_dependencies.update(dependencies)
+        positive_dependencies = frozenset(dependencies).difference(self.negated_dependencies)
+        negative_dependencies = frozenset(dependencies).intersection(self.negated_dependencies)
+        self.skip_if_any_not_implemented(positive_dependencies)
+        self.automatic_dependencies.update(positive_dependencies)
+        for dep in negative_dependencies:
+            self.automatic_dependencies.add('!' + dep)
 
     def set_dependencies(self, dependencies: List[str]) -> None:
         """Override any previously added automatic or manual dependencies.
@@ -179,7 +180,7 @@ class TestCase(test_case.TestCase):
         dependencies.update(self.automatic_dependencies)
         return sorted(dependencies)
 
-    def skip_if_any_not_implemented(self, dependencies: List[str]) -> None:
+    def skip_if_any_not_implemented(self, dependencies: Iterable[str]) -> None:
         """Skip the test case if any of the given dependencies is not implemented."""
         not_implemented = find_dependencies_not_implemented(dependencies)
         for dep in not_implemented:
