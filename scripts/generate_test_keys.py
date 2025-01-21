@@ -7,10 +7,11 @@
 generating the required key at run time. This helps speeding up testing."""
 
 from typing import Iterator, List, Tuple
+import os
 import re
 import argparse
 from mbedtls_framework.asymmetric_key_data import ASYMMETRIC_KEY_DATA
-from mbedtls_framework.build_tree import guess_project_root
+from mbedtls_framework import build_tree
 
 BYTES_PER_LINE = 16
 
@@ -168,7 +169,8 @@ def collect_keys() -> Tuple[str, str]:
     return ''.join(arrays), '\n'.join(look_up_table)
 
 def main() -> None:
-    default_output_path = guess_project_root() + "/framework/tests/include/test/test_keys.h"
+    default_output_path = os.path.join(build_tree.framework_directory(),
+                                       "tests/include/test/test_keys.h")
 
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--output", help="Output file", default=default_output_path)
