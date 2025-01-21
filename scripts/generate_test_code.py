@@ -919,6 +919,22 @@ def write_dependencies(out_data_f, test_dependencies, unique_dependencies):
     return dep_check_code
 
 
+_FRAMEWORK_PATH_RE = re.compile(r'(?<=\A"| )(?:\.\./)*(?:framework(?=/)|(?=data_files/))')
+_FRAMEWORK_ABSOLUTE_PATH = None
+def maybe_fixup_framework_path(val: str) -> str:
+    """Fix framework paths. Leave other string values unchanged.
+
+    If the value looks like a path to a framework file, patch it to point to
+    the actual location of the framework directory as determined when
+    generating the datax file.
+    """
+    global _FRAMEWORK_ABSOLUTE_PATH #pylint: disable=global-statement
+    if _FRAMEWORK_ABSOLUTE_PATH is None:
+        _FRAMEWORK_ABSOLUTE_PATH = os.path.abspath(os.getenv('MBEDTLS_FRAMEWORK',
+                                                             '../framework'))
+    val = re.sub(_FRAMEWORK_PATH_RE, _FRAMEWORK_ABSOLUTE_PATH, val)
+    return val
+
 INT_VAL_REGEX = re.compile(r'-?(\d+|0x[0-9a-f]+)$', re.I)
 def val_is_int(val: str) -> bool:
     """Whether val is suitable as an 'int' parameter in the .datax file."""
@@ -959,6 +975,8 @@ def write_parameters(out_data_f, test_args, func_args, unique_expressions):
                 val = exp_id
             else:
                 val = unique_expressions.index(val)
+        elif typ == 'char*':
+            val = maybe_fixup_framework_path(val)
         out_data_f.write(':' + typ + ':' + str(val))
     out_data_f.write('\n')
     return expression_code

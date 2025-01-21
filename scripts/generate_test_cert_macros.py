@@ -12,11 +12,13 @@ Generate `tests/src/test_certs.h` which includes certficaties/keys/certificate l
 import os
 import sys
 import argparse
-import jinja2
-from mbedtls_framework.build_tree import guess_project_root
 
-TESTS_DIR = os.path.join(guess_project_root(), 'tests')
-FRAMEWORK_DIR = os.path.join(guess_project_root(), 'framework')
+import jinja2
+
+from mbedtls_framework import build_tree
+
+TESTS_DIR = os.path.join(build_tree.guess_project_root(), 'tests')
+FRAMEWORK_DIR = build_tree.framework_directory()
 DATA_FILES_PATH = os.path.join(FRAMEWORK_DIR, 'data_files')
 
 INPUT_ARGS = [
