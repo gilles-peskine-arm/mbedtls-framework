@@ -65,3 +65,9 @@ in_4_x_branch () {
     read_build_info
     test $MBEDTLS_VERSION_MAJOR = "4"
 }
+
+if [ -z "${MBEDTLS_FRAMEWORK-}" ]; then
+    # Get the absolute path of the parent of the directory containing
+    # this script.
+    MBEDTLS_FRAMEWORK=$(cd -- "${0%/*}/.." && pwd)
+fi
