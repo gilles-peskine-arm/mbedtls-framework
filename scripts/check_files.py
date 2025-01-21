@@ -60,7 +60,8 @@ class FileIssueTracker:
         seps = os.path.sep
         if os.path.altsep is not None:
             seps += os.path.altsep
-        return '/'.join(filepath.split(seps))
+        normalized = '/'.join(filepath.split(seps))
+        return normalized
 
     def should_check_file(self, filepath):
         """Whether the given file name should be checked.
@@ -68,12 +69,21 @@ class FileIssueTracker:
         Files whose name ends with a string listed in ``self.suffix_exemptions``
         or whose path matches ``self.path_exemptions`` will not be checked.
         """
+        filepath = self.normalize_path(filepath)
+        # We look at both filepath and './' + filepath.
+        # This allows us to not have to worry about different treatment for
+        # files in the root directory: a substring or regex can match them
+        # even if it uses `/foo` to convey that the name must begin with `foo`.
         for files_exemption in self.suffix_exemptions:
             if filepath.endswith(files_exemption):
                 return False
-        if self.path_exemptions and \
-           re.match(self.path_exemptions, self.normalize_path(filepath)):
-            return False
+            if ('./' + filepath).endswith(files_exemption):
+                return False
+        if self.path_exemptions:
+            if re.match(self.path_exemptions, filepath):
+                return False
+            if re.match(self.path_exemptions, './' + filepath):
+                return False
         return True
 
     def check_file_for_issue(self, filepath):
@@ -108,12 +118,12 @@ BINARY_FILE_PATH_RE_LIST = [
     r'tf-psa-crypto/docs/.*\.pdf\Z',
     r'tf-psa-crypto/docs/.*\.png\Z',
     r'programs/fuzz/corpuses/[^.]+\Z',
-    r'framework/data_files/[^.]+\Z',
-    r'framework/data_files/.*\.(crt|csr|db|der|key|pubkey)\Z',
-    r'framework/data_files/.*\.req\.[^/]+\Z',
-    r'framework/data_files/.*malformed[^/]+\Z',
-    r'framework/data_files/format_pkcs12\.fmt\Z',
-    r'framework/data_files/.*\.bin\Z',
+    r'data_files/[^.]+\Z',
+    r'data_files/.*\.(crt|csr|db|der|key|pubkey)\Z',
+    r'data_files/.*\.req\.[^/]+\Z',
+    r'data_files/.*malformed[^/]+\Z',
+    r'data_files/format_pkcs12\.fmt\Z',
+    r'data_files/.*\.bin\Z',
 ]
 BINARY_FILE_PATH_RE = re.compile('|'.join(BINARY_FILE_PATH_RE_LIST))
 
@@ -174,7 +184,7 @@ class ShebangIssueTracker(FileIssueTracker):
         b'sh': 'sh',
     }
 
-    path_exemptions = re.compile(r'framework/scripts/quiet/.*')
+    path_exemptions = re.compile(r'scripts/quiet/.*')
 
     def is_valid_shebang(self, first_line, filepath):
         m = re.match(self._shebang_re, first_line)
@@ -379,7 +389,7 @@ class LicenseIssueTracker(LineIssueTracker):
     LICENSE_EXEMPTION_RE_LIST += [
         # Documentation explaining the license may have accidental
         # false positives.
-        r'(ChangeLog|LICENSE|framework\/LICENSE|[-0-9A-Z_a-z]+\.md)\Z',
+        r'(ChangeLog|LICENSE|[-0-9A-Z_a-z]+\.md)\Z',
         # Files imported from TF-M, and not used except in test builds,
         # may be under a different license.
         r'configs/ext/crypto_config_profile_medium\.h\Z',
@@ -387,7 +397,6 @@ class LicenseIssueTracker(LineIssueTracker):
         r'configs/ext/README\.md\Z',
         # Third-party file.
         r'dco\.txt\Z',
-        r'framework\/dco\.txt\Z',
     ]
     path_exemptions = re.compile('|'.join(BINARY_FILE_PATH_RE_LIST +
                                           LICENSE_EXEMPTION_RE_LIST))
@@ -510,40 +519,35 @@ class IntegrityChecker:
             self.logger.addHandler(console)
 
     @staticmethod
-    def collect_files():
+    def collect_files(root):
         """Return the list of files to check.
 
         These are the regular files commited into Git.
         """
-        bytes_output = subprocess.check_output(['git', '-C', 'framework',
+        bytes_output = subprocess.check_output(['git', '-C', root,
                                                 'ls-files', '-z'])
-        bytes_framework_filepaths = bytes_output.split(b'\0')[:-1]
-        bytes_framework_filepaths = ["framework/".encode() + filepath
-                                     for filepath in bytes_framework_filepaths]
-
-        bytes_output = subprocess.check_output(['git', 'ls-files', '-z'])
-        bytes_filepaths = bytes_output.split(b'\0')[:-1] + \
-                          bytes_framework_filepaths
-        ascii_filepaths = map(lambda fp: fp.decode('ascii'), bytes_filepaths)
-
+        bytes_filepaths = bytes_output.split(b'\0')[:-1]
+        ascii_filepaths = [fp.decode('ascii') for fp in bytes_filepaths]
         # Filter out directories. Normally Git doesn't list directories
         # (it only knows about the files inside them), but there is
         # at least one case where 'git ls-files' includes a directory:
         # submodules. Just skip submodules (and any other directories).
-        ascii_filepaths = [fp for fp in ascii_filepaths
-                           if os.path.isfile(fp)]
-        # Prepend './' to files in the top-level directory so that
-        # something like `'/Makefile' in fp` matches in the top-level
-        # directory as well as in subdirectories.
-        return [fp if os.path.dirname(fp) else os.path.join(os.curdir, fp)
-                for fp in ascii_filepaths]
+        return [fp for fp in ascii_filepaths
+                if os.path.isfile(os.path.join(root, fp))]
+
+    def check_files_in_repository(self, root):
+        """Check all files in a given repository for all issues."""
+        paths_under_root = self.collect_files(root)
+        for issue_to_check in self.issues_to_check:
+            for path_under_root in paths_under_root:
+                file_path = os.path.join(root, path_under_root)
+                if issue_to_check.should_check_file(path_under_root):
+                    issue_to_check.check_file_for_issue(file_path)
 
     def check_files(self):
         """Check all files for all issues."""
-        for issue_to_check in self.issues_to_check:
-            for filepath in self.collect_files():
-                if issue_to_check.should_check_file(filepath):
-                    issue_to_check.check_file_for_issue(filepath)
+        self.check_files_in_repository('.')
+        self.check_files_in_repository(build_tree.framework_directory())
 
     def output_issues(self):
         """Log the issues found and their locations.
