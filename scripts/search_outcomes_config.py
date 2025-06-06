@@ -6,11 +6,12 @@ runs with the required settings (compilation option enabled or disabled).
 """
 
 import argparse
+import io
 import os
 import re
 import subprocess
-from typing import Dict, FrozenSet, Iterator, List, Optional, Set
 import tempfile
+from typing import Dict, FrozenSet, IO, Iterator, List, Optional, Set, Union
 import unittest
 
 from mbedtls_framework import build_tree
@@ -46,12 +47,13 @@ def run_grep(regexp: str, outcome_file: str) -> List[str]:
     env['LC_ALL'] = 'C' # Speeds up some versions of GNU grep
     try:
         with open(outcome_file, 'rb') as outcome_file_object:
-            grep_input = outcome_file_object
+            grep_input = outcome_file_object #type: Union[IO[bytes], io.BufferedReader]
             if decompress_command is not None:
                 decompress_process = subprocess.Popen([decompress_command],
                                                       stdin=outcome_file_object,
                                                       stdout=subprocess.PIPE,
                                                       env=env)
+                assert decompress_process.stdout is not None # help mypy
                 grep_input = decompress_process.stdout
             return subprocess.check_output(['grep', '-E', regexp],
                                            stdin=grep_input,
@@ -65,13 +67,10 @@ def run_grep(regexp: str, outcome_file: str) -> List[str]:
         if decompress_process is not None:
             decompress_process.wait()
             if decompress_process.returncode != 0:
-                exn = subprocess.CalledProcessError(
+                assert decompress_command is not None # help mypy
+                raise subprocess.CalledProcessError(
                     cmd=decompress_command,
                     returncode=decompress_process.returncode)
-                import traceback
-                import pdb; pdb.set_trace()
-                traceback.print_exception(exn)
-                raise exn
 
 OUTCOME_LINE_RE = re.compile(r'[^;]*;'
                              r'([^;]*);'
@@ -244,7 +243,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     default_outcome_file = 'outcomes.csv'
     if not os.path.exists(default_outcome_file):
-        for ext in DECOMPRESS_COMMANDS.keys():
+        for ext in DECOMPRESS_COMMANDS:
             compressed_outcome_file = default_outcome_file + ext
             if os.path.exists(compressed_outcome_file):
                 default_outcome_file = compressed_outcome_file
