@@ -9,7 +9,7 @@ import argparse
 import os
 import re
 import subprocess
-from typing import Dict, FrozenSet, Iterator, List, Set
+from typing import Dict, FrozenSet, Iterator, List, Optional, Set
 import tempfile
 import unittest
 
@@ -29,18 +29,49 @@ def make_regexp_for_settings(settings: List[str]) -> str:
             '|'.join(settings) +
             r');PASS;')
 
+DECOMPRESS_COMMANDS = {
+    '.gz': 'zcat',
+    '.xz': 'xzcat',
+}
+
 def run_grep(regexp: str, outcome_file: str) -> List[str]:
     """Run grep on the outcome file and return the matching lines."""
+    decompress_command = None #type: Optional[str]
+    for ext, cmd in DECOMPRESS_COMMANDS.items():
+        if outcome_file.endswith(ext):
+            decompress_command = cmd
+            break
+    decompress_process = None
     env = os.environ.copy()
     env['LC_ALL'] = 'C' # Speeds up some versions of GNU grep
     try:
-        return subprocess.check_output(['grep', '-E', regexp, outcome_file],
-                                       encoding='ascii',
-                                       env=env).splitlines()
+        with open(outcome_file, 'rb') as outcome_file_object:
+            grep_input = outcome_file_object
+            if decompress_command is not None:
+                decompress_process = subprocess.Popen([decompress_command],
+                                                      stdin=outcome_file_object,
+                                                      stdout=subprocess.PIPE,
+                                                      env=env)
+                grep_input = decompress_process.stdout
+            return subprocess.check_output(['grep', '-E', regexp],
+                                           stdin=grep_input,
+                                           encoding='ascii',
+                                           env=env).splitlines()
     except subprocess.CalledProcessError as exn:
         if exn.returncode == 1:
             return [] # No results. We don't consider this an error.
         raise
+    finally:
+        if decompress_process is not None:
+            decompress_process.wait()
+            if decompress_process.returncode != 0:
+                exn = subprocess.CalledProcessError(
+                    cmd=decompress_command,
+                    returncode=decompress_process.returncode)
+                import traceback
+                import pdb; pdb.set_trace()
+                traceback.print_exception(exn)
+                raise exn
 
 OUTCOME_LINE_RE = re.compile(r'[^;]*;'
                              r'([^;]*);'
@@ -211,9 +242,17 @@ class TestOutcome(unittest.TestCase):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    default_outcome_file = 'outcomes.csv'
+    if not os.path.exists(default_outcome_file):
+        for ext in DECOMPRESS_COMMANDS.keys():
+            compressed_outcome_file = default_outcome_file + ext
+            if os.path.exists(compressed_outcome_file):
+                default_outcome_file = compressed_outcome_file
+                break
     parser.add_argument('--outcome-file', '-f', metavar='FILE',
-                        default='outcomes.csv',
-                        help='Outcome file to read (default: outcomes.csv)')
+                        default=default_outcome_file,
+                        help=('Outcome file to read ' +
+                              '(default: outcomes.csv[.gz|.xz])'))
     parser.add_argument('settings', metavar='SETTING', nargs='+',
                         help='Required setting (e.g. "MBEDTLS_RSA_C" or "!PSA_WANT_ALG_SHA256")')
     options = parser.parse_args()
