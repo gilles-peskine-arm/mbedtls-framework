@@ -39,7 +39,7 @@
 #include <string.h>
 
 #if defined(MBEDTLS_THREADING_C)
-#include <mbedtls/threading.h>
+#include "threading_internal.h"
 #endif
 
 
@@ -285,6 +285,10 @@ exit:
 #endif
 }
 
+/* Since TF-PSA-Crypto 1.0, mbedtls_mutex_free() on an all-bits-zero
+ * mutex is defined to be a no-op. In earlier library versions,
+ * it had undefined behavior. */
+#if MBEDTLS_THREADING_INTERNAL_VERSION <= 0x04000001
 static void mutex_free_not_initialized(const char *name)
 {
     (void) name;
@@ -298,6 +302,7 @@ static void mutex_free_not_initialized(const char *name)
     mbedtls_mutex_free(&mutex);
 #endif
 }
+#endif
 
 static void mutex_double_init(const char *name)
 {
@@ -314,6 +319,10 @@ static void mutex_double_init(const char *name)
 #endif
 }
 
+/* Since TF-PSA-Crypto 1.0, mbedtls_mutex_free() on an all-bits-zero
+ * mutex is defined to be a no-op. In earlier library versions,
+ * it had undefined behavior. */
+#if MBEDTLS_THREADING_INTERNAL_VERSION <= 0x04000001
 static void mutex_double_free(const char *name)
 {
     (void) name;
@@ -328,6 +337,7 @@ static void mutex_double_free(const char *name)
     mbedtls_mutex_free(&mutex);
 #endif
 }
+#endif
 
 static void mutex_leak(const char *name)
 {
