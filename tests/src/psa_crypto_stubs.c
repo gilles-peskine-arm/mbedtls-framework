@@ -72,6 +72,9 @@ psa_status_t psa_import_key(const psa_key_attributes_t *attributes,
     return PSA_ERROR_COMMUNICATION_FAILURE;
 }
 
+/* This hook function existed in Mbed TLS 3.6, but was removed in
+ * TF-PSA-Crypto 1.0. We can remove it once no consuming branch needs it. */
+int psa_can_do_hash(psa_algorithm_t hash_alg);
 int psa_can_do_hash(psa_algorithm_t hash_alg)
 {
     (void) hash_alg;
