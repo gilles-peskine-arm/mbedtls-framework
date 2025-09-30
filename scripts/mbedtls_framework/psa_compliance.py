@@ -108,6 +108,7 @@ def test_compliance(library_build_dir: str,
         unexpected_successes = expected_failures.copy()
         expected_failures.clear()
         unexpected_failures = [] # type: List[int]
+        there_were_failures = False
         if proc.stdout is None:
             return 1
 
@@ -120,6 +121,7 @@ def test_compliance(library_build_dir: str,
                 if test_num is not None:
                     test = int(test_num)
                 elif groupdict['test_result'] == 'FAILED':
+                    there_were_failures = True
                     try:
                         unexpected_successes.remove(test)
                         expected_failures.append(test)
@@ -138,6 +140,14 @@ def test_compliance(library_build_dir: str,
         print('Unexpected failures:', ', '.join(str(i) for i in unexpected_failures))
         print('Unexpected successes:', ', '.join(str(i) for i in sorted(unexpected_successes)))
         print()
+        if there_were_failures and proc.returncode != 1:
+            print(f'There were failures but psa-arch-tests-crypto exited with {proc.returncode}')
+            print('FAILED')
+            return 1
+        if not there_were_failures and proc.returncode != 0:
+            print(f'There were no failures but psa-arch-tests-crypto exited with {proc.returncode}')
+            print('FAILED')
+            return 1
         if unexpected_successes or unexpected_failures:
             if unexpected_successes:
                 print('Unexpected successes encountered.')
