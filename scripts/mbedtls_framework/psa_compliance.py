@@ -17,6 +17,7 @@ import argparse
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 from typing import List, Optional
@@ -25,6 +26,14 @@ from pathlib import Path
 from . import build_tree
 
 PSA_ARCH_TESTS_REPO = 'https://github.com/ARM-software/psa-arch-tests.git'
+
+def signal_name(signal_number: int) -> str:
+    """The name of a signal given by number, if known."""
+    try:
+        #pylint: disable=no-member
+        return signal.Signals(signal_number).name
+    except ValueError:
+        return '?'
 
 #pylint: disable=too-many-branches,too-many-statements,too-many-locals
 def test_compliance(library_build_dir: str,
@@ -138,6 +147,23 @@ def test_compliance(library_build_dir: str,
         print('Unexpected failures:', ', '.join(str(i) for i in unexpected_failures))
         print('Unexpected successes:', ', '.join(str(i) for i in sorted(unexpected_successes)))
         print()
+
+        if proc.returncode < 0:
+            sig = -proc.returncode
+            print(f"""
+psa-arch-tests crashed with signal {sig} ({signal_name(sig)})
+FAILED
+""")
+            return 1
+        if proc.returncode > 0 and \
+           not (seen_expected_failures or unexpected_failures):
+            print(f"""
+psa-arch-tests exited with status {proc.returncode}')
+Hint: this should be a VAL_STATUS_xxx from psa-arch-tests/api-tests/val/common/val.h
+FAILED
+""")
+            return 1
+
         if unexpected_successes or unexpected_failures:
             if unexpected_successes:
                 print('Unexpected successes encountered.')
@@ -146,9 +172,10 @@ def test_compliance(library_build_dir: str,
                 print()
             print('FAILED')
             return 1
-        else:
-            print('SUCCESS')
-            return 0
+
+        print('SUCCESS')
+        return 0
+
     finally:
         os.chdir(root_dir)
 
