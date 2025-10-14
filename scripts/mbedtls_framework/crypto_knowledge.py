@@ -9,7 +9,7 @@ This module is entirely based on the PSA API.
 
 import enum
 import re
-from typing import FrozenSet, Iterable, List, Optional, Tuple, Dict
+from typing import Collection, FrozenSet, Iterable, List, Optional, Tuple, Dict
 
 from .asymmetric_key_data import ASYMMETRIC_KEY_DATA
 
@@ -144,6 +144,7 @@ class KeyType:
     KEY_TYPE_SIZES = {
         'PSA_KEY_TYPE_AES': (128, 192, 256), # exhaustive
         'PSA_KEY_TYPE_ARIA': (128, 192, 256), # exhaustive
+        'PSA_KEY_TYPE_ASCON': (128, 256), # exhaustive
         'PSA_KEY_TYPE_CAMELLIA': (128, 192, 256), # exhaustive
         'PSA_KEY_TYPE_CHACHA20': (256,), # exhaustive
         'PSA_KEY_TYPE_DERIVE': (120, 128), # sample
@@ -226,6 +227,8 @@ class KeyType:
             if alg.head in ['CMAC', 'OFB'] and \
                self.head in ['ARIA', 'CAMELLIA']:
                 return False # not implemented in Mbed TLS
+            return True
+        if self.head == 'ASCON' and alg.head == 'ASCON_AEAD128':
             return True
         if self.head == 'CHACHA20' and alg.head == 'CHACHA20_POLY1305':
             return True
@@ -339,10 +342,12 @@ class Algorithm:
         'SHAKE256_512': AlgorithmCategory.HASH,
         'MD': AlgorithmCategory.HASH,
         'RIPEMD': AlgorithmCategory.HASH,
+        'ASCON_HASH': AlgorithmCategory.AEAD,
         'ANY_HASH': AlgorithmCategory.HASH,
         'HMAC': AlgorithmCategory.MAC,
         'STREAM_CIPHER': AlgorithmCategory.CIPHER,
         'CHACHA20_POLY1305': AlgorithmCategory.AEAD,
+        'ASCON_AEAD': AlgorithmCategory.AEAD,
         'DSA': AlgorithmCategory.SIGN,
         'ECDSA': AlgorithmCategory.SIGN,
         'EDDSA': AlgorithmCategory.SIGN,
@@ -469,17 +474,18 @@ class Algorithm:
         raise ValueError('Unknown hash length for ' + alg)
 
     PERMITTED_TAG_LENGTHS = {
+        'PSA_ALG_ASCON_AEAD128': range(4, 17),
         'PSA_ALG_CCM': frozenset([4, 6, 8, 10, 12, 14, 16]),
         'PSA_ALG_CHACHA20_POLY1305': frozenset([16]),
         'PSA_ALG_GCM': frozenset([4, 8, 12, 13, 14, 15, 16]),
-    }
+    } #type: Dict[str, Collection[int]]
     MAC_LENGTH = {
         'PSA_ALG_CBC_MAC': 16, # actually the block cipher length
         'PSA_ALG_CMAC': 16, # actually the block cipher length
     }
     HMAC_RE = re.compile(r'PSA_ALG_HMAC\((.*)\)\Z')
     @classmethod
-    def permitted_truncations(cls, base: str) -> FrozenSet[int]:
+    def permitted_truncations(cls, base: str) -> Collection[int]:
         """Permitted output lengths for the given MAC or AEAD base algorithm.
 
         For a MAC algorithm, this is the set of truncation lengths that
