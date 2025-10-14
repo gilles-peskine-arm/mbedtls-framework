@@ -67,7 +67,7 @@ def normalize(expr: str) -> str:
 
 ALG_TRUNCATED_TO_SELF_RE = \
     re.compile(r'PSA_ALG_AEAD_WITH_SHORTENED_TAG\('
-               r'PSA_ALG_(?:CCM|CHACHA20_POLY1305|GCM)'
+               r'PSA_ALG_(?:ASCON_AEAD|CCM|CHACHA20_POLY1305|GCM)'
                r', *16\)\Z')
 
 def is_simplifiable(expr: str) -> bool:
