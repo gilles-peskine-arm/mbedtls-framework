@@ -355,6 +355,26 @@ class Step:
                 file_.write(new_content)
                 return True
 
+    def edit_files_glob(self,
+                        pattern: str,
+                        transform: Callable[[str], str]) -> bool:
+        """Edit one or more files given by a glob pattern.
+
+        The path can be relative to the toplevel root or absolute.
+
+        Raise an exception if no file matches the glob pattern.
+
+        Return True if at least one file was modified, False otherwise.
+        """
+        paths = self.info.top_dir.glob(pattern)
+        if not paths:
+            raise Exception('No file matches the pattern ' + pattern)
+        modified = False
+        for path in paths:
+            if self.edit_file(path, transform):
+                modified = True
+        return modified
+
     def assert_preconditions(self) -> None:
         """Check whether the preconditions for this step have been achieved.
 
@@ -441,20 +461,131 @@ class BumpVersionStep(Step):
     def name(cls) -> str:
         return 'version'
 
-    # Files and directories that may contain version information.
-    FILES_WITH_VERSION = [
-        'CMakeLists.txt',
-        'doxygen',
-        'include',
-        'tests/suites',
-    ]
+    def __init__(self, options: Options, info: Info) -> None:
+        """Instantiate the release step to bump the product version.
+        """
+        super().__init__(options, info)
+        m = re.match(r'\A([0-9]+)\.([0-9]+)\.([0-9]+)([-a-z][-.0-9A-Za-z]+)?\Z', self.info.version)
+        if not m:
+            raise Exception('I don\'t understand the structure of the version string: ' +
+                            self.info.version)
+        self.major = m.group(1)
+        self.minor = m.group(2)
+        self.patchlevel = m.group(3)
+        self.uint32 = (int(self.major) << 24 |
+                       int(self.minor) << 16 |
+                       int(self.patchlevel) << 8)
+
+    @staticmethod
+    def _edit_at_least_once(msg: str,
+                            pattern: str, repl: str,
+                            content: str) -> str:
+        """Make at least one regex replacement."""
+        content, count = re.subn(pattern, repl, content, flags=re.MULTILINE)
+        if not count:
+            raise Exception(f'Cannot find ' + msg)
+        return content
+
+    def edit_product_version_in_cmake(self, content: str) -> str:
+        """Edit the product version in CMakeLists.txt.
+
+        Error out if the expected content is not found.
+        """
+        # Hard-code the possible prefixes to the variable name.
+        # We must not match things like "set(MBEDTLS_CRYPTO_SOVERSION ...)".
+        content = self._edit_at_least_once(
+            '"set(<product>_VERSION ...)" in CMakeLists.txt',
+            r'(^ *set\((MBEDTLS|TF_PSA_CRYPTO)_VERSION +)[0-9][-.0-9A-Za-z]+(\))',
+            rf'\g<1>{self.info.version}\g<3>',
+            content)
+        return content
+
+    def edit_product_version_in_header(self, content: str) -> str:
+        """Edit the product version in build_info.h.
+
+        Error out if the expected content is not found.
+        """
+        content = self._edit_at_least_once(
+            '"#define <product>_VERSION_MAJOR" in build_info.h',
+            r'(^#define \w+_VERSION_MAJOR +)[0-9]+',
+            rf'\g<1>{self.major}',
+            content)
+        content = self._edit_at_least_once(
+            '"#define <product>_VERSION_MINOR" in build_info.h',
+            r'(^#define \w+_VERSION_MINOR +)[0-9]+',
+            rf'\g<1>{self.minor}',
+            content)
+        content = self._edit_at_least_once(
+            '"#define <product>_VERSION_PATCH" in build_info.h',
+            r'(^#define \w+_VERSION_PATCH +)[0-9]+',
+            rf'\g<1>{self.patchlevel}',
+            content)
+        content = self._edit_at_least_once(
+            '"#define <product>_VERSION_NUMBER" in build_info.h',
+            r'(^#define \w+_VERSION_NUMBER +0x)[0-9a-f]{8}',
+            rf'\g<1>{self.uint32:08x}',
+            content)
+        content = self._edit_at_least_once(
+            '"#define <product>_VERSION_STRING" in build_info.h',
+            r'(^#define \w+_VERSION_STRING +")[^\n"]*(")',
+            rf'\g<1>{self.info.version}\g<2>',
+            content)
+        content = self._edit_at_least_once(
+            '"#define <product>_VERSION_STRING_FULL" in build_info.h',
+            r'(^#define \w+_VERSION_STRING_FULL +")[^\n"]*(")',
+            rf'\g<1>{self.info.product_human_name} {self.info.version}\g<2>',
+            content)
+        return content
+
+    def edit_product_version_in_test_data(self, content: str) -> str:
+        """Edit the product version in test data."""
+        # Don't bother to check if substitutions are made. If the unit tests
+        # pass, the result is good.
+        content = re.sub(r'version:"[^\n"]+"',
+                         rf'version:"{self.info.version}"',
+                         content)
+        return content
+
+    def edit_product_version_in_doxyfile(self, content: str) -> str:
+        """Edit the product version in Doxyfile.
+
+        Error out if the expected content is not found.
+        """
+        content = self._edit_at_least_once(
+            '"PROJECT_NAME" in doyfile',
+            r'(^ *PROJECT_NAME *= *")[^\n"]*(")',
+            rf'\g<1>{self.info.product_human_name} v{self.info.version}\g<2>',
+            content)
+        return content
+
+    def edit_product_version_in_doc_mainpage(self, content: str) -> str:
+        """Edit the product version in doc_mainpage.h.
+
+        Error out if the expected content is not found.
+        """
+        content = self._edit_at_least_once(
+            '"@mainpage" in doc_mainpage.h',
+            r'(@mainpage\W+)\w.*?v[0-9]\S+',
+            rf'\g<1>{self.info.product_human_name} v{self.info.version}',
+            content)
+        return content
+
+    def edit_product_version_everywhere(self) -> None:
+        """Edit the product version in all relevant files."""
+        self.edit_file('CMakeLists.txt', self.edit_product_version_in_cmake)
+        self.edit_files_glob('include/*/build_info.h',
+                             self.edit_product_version_in_header)
+        self.edit_files_glob('tests/suites/test_suite_*version.data',
+                             self.edit_product_version_in_test_data)
+        self.edit_files_glob('doxygen/*oxyfile',
+                             self.edit_product_version_in_doxyfile)
+        self.edit_files_glob('doxygen/input/doc_mainpage.h',
+                             self.edit_product_version_in_doc_mainpage)
 
     def run(self) -> None:
         """Bump the product version if needed."""
-        subprocess.check_call(['scripts/bump_version.sh',
-                               '--version', self.info.version],
-                              cwd=self.info.top_dir)
-        self.git_commit_maybe(self.FILES_WITH_VERSION,
+        self.edit_product_version_everywhere()
+        self.git_commit_maybe(['.'],
                               'Bump version to ' + self.info.version)
 
 
