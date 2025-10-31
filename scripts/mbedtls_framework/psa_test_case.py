@@ -34,13 +34,15 @@ def find_dependencies_not_implemented(dependencies: List[str]) -> List[str]:
     """List the dependencies that are not implemented."""
     global _implemented_dependencies #pylint: disable=global-statement,invalid-name
     if _implemented_dependencies is None:
-        include_dir = 'include'
         acc = set() #type: Set[str]
         for filename in [
-                os.path.join(include_dir, 'psa/crypto_config.h'),
-                os.path.join(include_dir, 'psa/crypto_adjust_config_synonyms.h'),
+                'include/psa/crypto_config.h',
+                'include/psa/crypto_adjust_config_synonyms.h',
+                'include/tf-psa-crypto/private/crypto_adjust_config_synonyms.h',
         ]:
-            read_implemented_dependencies(acc, filename)
+            path = os.path.join(build_tree.guess_project_root(), filename)
+            if os.path.exists(path):
+                read_implemented_dependencies(acc, path)
         _implemented_dependencies = frozenset(acc)
     return [dep
             for dep in dependencies
