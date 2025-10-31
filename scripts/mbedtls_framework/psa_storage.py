@@ -41,22 +41,12 @@ class Expr:
     def update_cache(self) -> None:
         """Update `value_cache` for expressions registered in `unknown_values`."""
         expressions = sorted(self.unknown_values)
-        # Temporary, while Mbed TLS does not just rely on the TF-PSA-Crypto
-        # build system to build its crypto library. When it does, the first
-        # case can just be removed.
-
-        if build_tree.looks_like_root('.'):
-            includes = ['include']
-            if build_tree.looks_like_tf_psa_crypto_root('.'):
-                includes.append('drivers/builtin/include')
-                includes.append('drivers/everest/include')
-                includes.append('drivers/everest/include/tf-psa-crypto/private/')
-            elif not build_tree.is_mbedtls_3_6():
-                includes.append('tf-psa-crypto/include')
-                includes.append('tf-psa-crypto/drivers/builtin/include')
-                includes.append('tf-psa-crypto/drivers/everest/include')
-                includes.append('tf-psa-crypto/drivers/everest/include/tf-psa-crypto/private/')
-
+        includes = [
+            'include',
+            'drivers/builtin/include',
+            'drivers/everest/include',
+            'drivers/everest/include/tf-psa-crypto/private/',
+        ]
         values = c_build_helper.get_c_expression_values(
             'unsigned long', '%lu',
             expressions,
