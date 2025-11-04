@@ -9,8 +9,9 @@ This script will update the checked out git branch, if any.
 On normal exit, the worktree contains the release candidate commit.
 
 This script requires the following external tools:
-- GNU tar (can be called ``gnutar`` or ``gtar``);
+- ``faketime``.
 - ``sha256sum``.
+- GNU tar (can be called ``gnutar`` or ``gtar``).
 """
 
 # Copyright The Mbed TLS Contributors
@@ -121,31 +122,44 @@ class Info:
 
     @staticmethod
     def _git_command(subcommand: List[str],
-                     where: Optional[PathOrString] = None) -> List[str]:
-        cmd = ['git']
+                     where: Optional[PathOrString] = None,
+                     wrap: Optional[Sequence[str]] = None) -> List[str]:
+        """Construct a git call."""
+        cmd = list(wrap) if wrap is not None else []
+        cmd.append('git')
         if where is not None:
             cmd += ['-C', str(where)]
         return cmd + subcommand
 
     def call_git(self, cmd: List[str],
                  where: Optional[PathOrString] = None,
+                 wrap: Optional[Sequence[str]] = None,
                  env: Optional[Dict[str, str]] = None) -> None:
         """Run git in the source tree.
 
-        Pass `where` to specify a submodule.
+        Keyword arguments:
+        * `env`: a different process environment (like `submodule.run`).
+        * `where`: the submodule to run in (main tree root if omitted).
+        * `wrap`: a command prefix for `git`, e.g. ``["sudo", "-u", username]``.
         """
-        subprocess.check_call(self._git_command(cmd, where),
+        full_command = self._git_command(cmd, where=where, wrap=wrap)
+        subprocess.check_call(full_command,
                               cwd=self.top_dir,
                               env=env)
 
     def read_git(self, cmd: List[str],
                  where: Optional[PathOrString] = None,
+                 wrap: Optional[Sequence[str]] = None,
                  env: Optional[Dict[str, str]] = None) -> bytes:
         """Run git in the source tree and return the output.
 
-        Pass `where` to specify a submodule.
+        Keyword arguments:
+        * `env`: a different process environment (like `submodule.run`).
+        * `where`: the submodule to run in (main tree root if omitted).
+        * `wrap`: a command prefix for `git`, e.g. ``["sudo", "-u", username]``.
         """
-        return subprocess.check_output(self._git_command(cmd, where),
+        full_command = self._git_command(cmd, where=where, wrap=wrap)
+        return subprocess.check_output(full_command,
                                        cwd=self.top_dir,
                                        env=env)
 
@@ -259,21 +273,29 @@ class Step:
 
     def call_git(self, cmd: List[str],
                  where: Optional[PathOrString] = None,
+                 wrap: Optional[Sequence[str]] = None,
                  env: Optional[Dict[str, str]] = None) -> None:
         """Run git in the source tree.
 
-        Pass `where` to specify a submodule.
+        Keyword arguments:
+        * `env`: a different process environment (like `submodule.run`).
+        * `where`: the submodule to run in (main tree root if omitted).
+        * `wrap`: a command prefix for `git`, e.g. ``["sudo", "-u", username]``.
         """
-        self.info.call_git(cmd, where=where, env=env)
+        self.info.call_git(cmd, where=where, wrap=wrap, env=env)
 
     def read_git(self, cmd: List[str],
                  where: Optional[PathOrString] = None,
+                 wrap: Optional[Sequence[str]] = None,
                  env: Optional[Dict[str, str]] = None) -> bytes:
         """Run git in the source tree and return the output.
 
-        Pass `where` to specify a submodule.
+        Keyword arguments:
+        * `env`: a different process environment (like `submodule.run`).
+        * `where`: the submodule to run in (main tree root if omitted).
+        * `wrap`: a command prefix for `git`, e.g. ``["sudo", "-u", username]``.
         """
-        return self.info.read_git(cmd, where=where, env=env)
+        return self.info.read_git(cmd, where=where, wrap=wrap, env=env)
 
     def commit_timestamp(self,
                          where: Optional[PathOrString] = None,
@@ -508,19 +530,28 @@ class ArchiveStep(Step):
         # `git get-tar-commit-id` could retrieve. If we change to releasing
         # an exact commit, we should make sure that the commit gets published.
         index = self.git_index_as_tree_ish()
-        mtime = self.commit_timestamp()
+        # For a tree-ish, `git archive` uses the current time as the timestamp
+        # of every file in the archive. Git >= 2.40.0 can override this with
+        # the `--mtime` option, but we still have older versions in our CI.
+        # At this time, it is more convenient to rely on faketime.
+        # Once we've modernized our CI, we should switch back to
+        # `git archive --mtime`.
+        mtime = self.commit_datetime()
+        # "Freeze clock" format for faketime
+        fake_time = mtime.strftime('%Y-%m-%d %H:%M:%S')
         self.call_git(['archive', '--format=tar',
-                       '--mtime', str(mtime),
                        '--prefix', prefix,
                        '--output', str(plain_tar_path),
-                       index])
+                       index],
+                      wrap=['env', 'TZ=UTC', 'faketime', fake_time])
         for submodule in self.info.submodules:
             index = self.git_index_as_tree_ish(where=submodule)
-            mtime = self.commit_timestamp(where=submodule)
+            mtime = self.commit_datetime(where=submodule)
+            fake_time = mtime.strftime('%Y-%m-%d %H:%M:%S')
             data = self.read_git(['archive', '--format=tar',
-                                  '--mtime', str(mtime),
                                   '--prefix', prefix + submodule + '/',
                                   index],
+                                 wrap=['env', 'TZ=UTC', 'faketime', fake_time],
                                  where=submodule)
             subprocess.run([self.options.tar_command, '--catenate',
                             '-f', plain_tar_path,
