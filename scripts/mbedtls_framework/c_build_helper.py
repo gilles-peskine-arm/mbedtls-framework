@@ -11,14 +11,6 @@ import subprocess
 import sys
 import tempfile
 
-class CompileError(Exception):
-    """Exception to represent an error during the compilation."""
-
-    def __init__(self, message):
-        """Save the error massage"""
-
-        super().__init__()
-        self.message = message
 
 def remove_file_if_exists(filename):
     """Remove the specified file, ignoring errors."""
@@ -115,14 +107,9 @@ def compile_c_file(c_filename, exe_filename, include_dirs):
         cmd += ['-Fe' + exe_filename, '-Fo' + obj_filename]
     else:
         cmd += ['-o' + exe_filename]
+    cmd.append(c_filename)
 
-    try:
-        subprocess.check_output(cmd + [c_filename],
-                                stderr=subprocess.PIPE,
-                                universal_newlines=True)
-
-    except subprocess.CalledProcessError as e:
-        raise CompileError(e.stderr) from e
+    subprocess.check_call(cmd, universal_newlines=True)
 
 def get_c_expression_values(
         cast_to, printf_format,
