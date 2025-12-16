@@ -19,38 +19,6 @@ TESTS_DIR = os.path.join(guess_project_root(), 'tests')
 FRAMEWORK_DIR = os.path.join(guess_project_root(), 'framework')
 DATA_FILES_PATH = os.path.join(FRAMEWORK_DIR, 'data_files')
 
-INPUT_ARGS = [
-    ("string", "TEST_CA_CRT_EC_PEM", DATA_FILES_PATH + "/test-ca2.crt"),
-    ("binary", "TEST_CA_CRT_EC_DER", DATA_FILES_PATH + "/test-ca2.crt.der"),
-    ("string", "TEST_CA_KEY_EC_PEM", DATA_FILES_PATH + "/test-ca2.key.enc"),
-    ("password", "TEST_CA_PWD_EC_PEM", "PolarSSLTest"),
-    ("binary", "TEST_CA_KEY_EC_DER", DATA_FILES_PATH + "/test-ca2.key.der"),
-    ("string", "TEST_CA_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/test-ca-sha256.crt"),
-    ("binary", "TEST_CA_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/test-ca-sha256.crt.der"),
-    ("string", "TEST_CA_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/test-ca-sha1.crt"),
-    ("binary", "TEST_CA_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/test-ca-sha1.crt.der"),
-    ("string", "TEST_CA_KEY_RSA_PEM", DATA_FILES_PATH + "/test-ca.key"),
-    ("password", "TEST_CA_PWD_RSA_PEM", "PolarSSLTest"),
-    ("binary", "TEST_CA_KEY_RSA_DER", DATA_FILES_PATH + "/test-ca.key.der"),
-    ("string", "TEST_SRV_CRT_EC_PEM", DATA_FILES_PATH + "/server5.crt"),
-    ("binary", "TEST_SRV_CRT_EC_DER", DATA_FILES_PATH + "/server5.crt.der"),
-    ("string", "TEST_SRV_KEY_EC_PEM", DATA_FILES_PATH + "/server5.key"),
-    ("binary", "TEST_SRV_KEY_EC_DER", DATA_FILES_PATH + "/server5.key.der"),
-    ("string", "TEST_SRV_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/server2-sha256.crt"),
-    ("binary", "TEST_SRV_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/server2-sha256.crt.der"),
-    ("string", "TEST_SRV_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/server2.crt"),
-    ("binary", "TEST_SRV_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/server2.crt.der"),
-    ("string", "TEST_SRV_KEY_RSA_PEM", DATA_FILES_PATH + "/server2.key"),
-    ("binary", "TEST_SRV_KEY_RSA_DER", DATA_FILES_PATH + "/server2.key.der"),
-    ("string", "TEST_CLI_CRT_EC_PEM", DATA_FILES_PATH + "/cli2.crt"),
-    ("binary", "TEST_CLI_CRT_EC_DER", DATA_FILES_PATH + "/cli2.crt.der"),
-    ("string", "TEST_CLI_KEY_EC_PEM", DATA_FILES_PATH + "/cli2.key"),
-    ("binary", "TEST_CLI_KEY_EC_DER", DATA_FILES_PATH + "/cli2.key.der"),
-    ("string", "TEST_CLI_CRT_RSA_PEM", DATA_FILES_PATH + "/cli-rsa-sha256.crt"),
-    ("binary", "TEST_CLI_CRT_RSA_DER", DATA_FILES_PATH + "/cli-rsa-sha256.crt.der"),
-    ("string", "TEST_CLI_KEY_RSA_PEM", DATA_FILES_PATH + "/cli-rsa.key"),
-    ("binary", "TEST_CLI_KEY_RSA_DER", DATA_FILES_PATH + "/cli-rsa.key.der"),
-]
 
 
 def read_as_c_array(filename: str) -> Iterator[str]:
@@ -146,6 +114,39 @@ def generate(values: List[Tuple[str, str, str]], output: str) -> None:
                 raise Exception('Unknown type: ' + type_)
             f.write(chunk)
         f.write(FOOTER)
+
+INPUT_ARGS = [
+    ("string", "TEST_CA_CRT_EC_PEM", DATA_FILES_PATH + "/test-ca2.crt"),
+    ("binary", "TEST_CA_CRT_EC_DER", DATA_FILES_PATH + "/test-ca2.crt.der"),
+    ("string", "TEST_CA_KEY_EC_PEM", DATA_FILES_PATH + "/test-ca2.key.enc"),
+    ("password", "TEST_CA_PWD_EC_PEM", "PolarSSLTest"),
+    ("binary", "TEST_CA_KEY_EC_DER", DATA_FILES_PATH + "/test-ca2.key.der"),
+    ("string", "TEST_CA_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/test-ca-sha256.crt"),
+    ("binary", "TEST_CA_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/test-ca-sha256.crt.der"),
+    ("string", "TEST_CA_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/test-ca-sha1.crt"),
+    ("binary", "TEST_CA_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/test-ca-sha1.crt.der"),
+    ("string", "TEST_CA_KEY_RSA_PEM", DATA_FILES_PATH + "/test-ca.key"),
+    ("password", "TEST_CA_PWD_RSA_PEM", "PolarSSLTest"),
+    ("binary", "TEST_CA_KEY_RSA_DER", DATA_FILES_PATH + "/test-ca.key.der"),
+    ("string", "TEST_SRV_CRT_EC_PEM", DATA_FILES_PATH + "/server5.crt"),
+    ("binary", "TEST_SRV_CRT_EC_DER", DATA_FILES_PATH + "/server5.crt.der"),
+    ("string", "TEST_SRV_KEY_EC_PEM", DATA_FILES_PATH + "/server5.key"),
+    ("binary", "TEST_SRV_KEY_EC_DER", DATA_FILES_PATH + "/server5.key.der"),
+    ("string", "TEST_SRV_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/server2-sha256.crt"),
+    ("binary", "TEST_SRV_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/server2-sha256.crt.der"),
+    ("string", "TEST_SRV_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/server2.crt"),
+    ("binary", "TEST_SRV_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/server2.crt.der"),
+    ("string", "TEST_SRV_KEY_RSA_PEM", DATA_FILES_PATH + "/server2.key"),
+    ("binary", "TEST_SRV_KEY_RSA_DER", DATA_FILES_PATH + "/server2.key.der"),
+    ("string", "TEST_CLI_CRT_EC_PEM", DATA_FILES_PATH + "/cli2.crt"),
+    ("binary", "TEST_CLI_CRT_EC_DER", DATA_FILES_PATH + "/cli2.crt.der"),
+    ("string", "TEST_CLI_KEY_EC_PEM", DATA_FILES_PATH + "/cli2.key"),
+    ("binary", "TEST_CLI_KEY_EC_DER", DATA_FILES_PATH + "/cli2.key.der"),
+    ("string", "TEST_CLI_CRT_RSA_PEM", DATA_FILES_PATH + "/cli-rsa-sha256.crt"),
+    ("binary", "TEST_CLI_CRT_RSA_DER", DATA_FILES_PATH + "/cli-rsa-sha256.crt.der"),
+    ("string", "TEST_CLI_KEY_RSA_PEM", DATA_FILES_PATH + "/cli-rsa.key"),
+    ("binary", "TEST_CLI_KEY_RSA_DER", DATA_FILES_PATH + "/cli-rsa.key.der"),
+]
 
 def main() -> None:
     parser = argparse.ArgumentParser()
