@@ -53,6 +53,42 @@ INPUT_ARGS = [
     ("binary", "TEST_CLI_KEY_RSA_DER", DATA_FILES_PATH + "/cli-rsa.key.der"),
 ]
 
+def read_as_c_array(filename: str) -> Iterator[str]:
+    with open(filename, 'rb') as f:
+        data = f.read(12)
+        while data:
+            yield ', '.join(['{:#04x}'.format(b) for b in data])
+            data = f.read(12)
+
+def read_lines(filename: str) -> Iterator[str]:
+    with open(filename) as f:
+        try:
+            for line in f:
+                yield line.strip()
+        except:
+            print(filename)
+            raise
+
+def put_to_column(value: str, position: int = 0) -> str:
+    return ' '*position + value
+
+def generate(values: List[Tuple[str, str, str]], output: str) -> None:
+    """Generate C header file.
+    """
+    template_loader = jinja2.FileSystemLoader(DATA_FILES_PATH)
+    template_env = jinja2.Environment(
+        loader=template_loader, lstrip_blocks=True, trim_blocks=True,
+        keep_trailing_newline=True)
+
+    template_env.filters['read_as_c_array'] = read_as_c_array
+    template_env.filters['read_lines'] = read_lines
+    template_env.filters['put_to_column'] = put_to_column
+
+    template = template_env.get_template('test_certs.h.jinja2')
+
+    with open(output, 'w') as f:
+        f.write(template.render(macros=values))
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     default_output_path = os.path.join(TESTS_DIR, 'include', 'test', 'test_certs.h')
@@ -66,43 +102,6 @@ def main() -> None:
         return
 
     generate(INPUT_ARGS, args.output)
-
-def generate(values: List[Tuple[str, str, str]], output: str) -> None:
-    """Generate C header file.
-    """
-    template_loader = jinja2.FileSystemLoader(DATA_FILES_PATH)
-    template_env = jinja2.Environment(
-        loader=template_loader, lstrip_blocks=True, trim_blocks=True,
-        keep_trailing_newline=True)
-
-    def read_as_c_array(filename: str) -> Iterator[str]:
-        with open(filename, 'rb') as f:
-            data = f.read(12)
-            while data:
-                yield ', '.join(['{:#04x}'.format(b) for b in data])
-                data = f.read(12)
-
-    def read_lines(filename: str) -> Iterator[str]:
-        with open(filename) as f:
-            try:
-                for line in f:
-                    yield line.strip()
-            except:
-                print(filename)
-                raise
-
-    def put_to_column(value: str, position: int = 0) -> str:
-        return ' '*position + value
-
-    template_env.filters['read_as_c_array'] = read_as_c_array
-    template_env.filters['read_lines'] = read_lines
-    template_env.filters['put_to_column'] = put_to_column
-
-    template = template_env.get_template('test_certs.h.jinja2')
-
-    with open(output, 'w') as f:
-        f.write(template.render(macros=values))
-
 
 if __name__ == '__main__':
     main()
