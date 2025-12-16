@@ -11,7 +11,7 @@ Generate `tests/src/test_certs.h` which includes certficaties/keys/certificate l
 
 import argparse
 import os
-from typing import Iterator, List, Tuple
+from typing import Iterator, List
 
 from mbedtls_framework.build_tree import guess_project_root
 
@@ -19,68 +19,102 @@ TESTS_DIR = os.path.join(guess_project_root(), 'tests')
 FRAMEWORK_DIR = os.path.join(guess_project_root(), 'framework')
 DATA_FILES_PATH = os.path.join(FRAMEWORK_DIR, 'data_files')
 
+class Item:
+    """Abstract class for items for which we will emit a definition."""
 
+    def macro_definition(self) -> str:
+        """How to define this macro in C."""
+        raise NotImplementedError
 
-def read_as_c_array(filename: str) -> Iterator[str]:
-    with open(filename, 'rb') as f:
-        data = f.read(12)
-        while data:
-            yield ', '.join(['{:#04x}'.format(b) for b in data])
+    def dependencies(self) -> List[str]:
+        """The external files used to construct this item."""
+        #pylint: disable=no-self-use
+        return []
+
+class FileItem(Item):
+    """Common class for an item read from a file."""
+    #pylint: disable=abstract-method
+
+    def __init__(self, name: str, filename: str) -> None:
+        self.name = name
+        self.filename = filename
+
+    def dependencies(self) -> List[str]:
+        return [self.filename]
+
+class BinaryFileItem(FileItem):
+    """An item read from a binary file."""
+
+    def _read_as_c_array(self) -> Iterator[str]:
+        with open(self.filename, 'rb') as f:
             data = f.read(12)
+            while data:
+                yield ', '.join(['{:#04x}'.format(b) for b in data])
+                data = f.read(12)
 
-BINARY_START_TEMPLATE = '''
+    START_TEMPLATE = '''
 /* This is generated from {value}. */
 /* BEGIN FILE binary macro {name} {value} */
 #define {name} {{ \\
 '''
-'''
-'''
-BINARY_END_TEMPLATE = '''
+
+    END_TEMPLATE = '''
 }}
 /* END FILE */
 '''
 
-def format_binary(name: str, filename: str) -> str:
-    """Format the definition of a macro containing a byte array loaded from a file."""
-    return (BINARY_START_TEMPLATE.format(name=name, value=filename) +
-            '        '
-            ', \\\n        '.join(read_as_c_array(filename)) +
-            '\\' +
-            BINARY_END_TEMPLATE.format(name=name, value=filename))
+    def macro_definition(self) -> str:
+        """Format the definition of a macro containing a byte array loaded from a file."""
+        return (self.START_TEMPLATE.format(name=self.name, value=self.filename) +
+                '        '
+                ', \\\n        '.join(self._read_as_c_array()) +
+                '\\' +
+                self.END_TEMPLATE.format(name=self.name, value=self.filename))
 
-def read_lines(filename: str) -> Iterator[str]:
-    with open(filename) as f:
-        try:
-            for line in f:
-                yield line.strip()
-        except:
-            print(filename)
-            raise
+class TextFileItem(FileItem):
+    """An item read from a binary file."""
 
-STRING_START_TEMPLATE = '''
+    def _read_lines(self) -> Iterator[str]:
+        with open(self.filename) as f:
+            try:
+                for line in f:
+                    yield line.strip()
+            except:
+                print(self.filename)
+                raise
+
+    START_TEMPLATE = '''
 /* This is taken from {value}. */
 /* BEGIN FILE string macro {name} {value} */
 #define {name} \\
 '''
-STRING_END_TEMPLATE = '''
+
+    END_TEMPLATE = '''
 /* END FILE */
 '''
 
-def format_string(name: str, filename: str) -> str:
-    """Format the definition of a macro containing a string literal loaded from a file."""
-    return (STRING_START_TEMPLATE.format(name=name, value=filename) +
-            '    "' +
-            '\\r\\n" \\\n    "'.join(read_lines(filename)) +
-            '\\r\\n"' +
-            STRING_END_TEMPLATE.format(name=name, value=filename))
+    def macro_definition(self) -> str:
+        """Format the definition of a macro containing a string literal loaded from a file."""
+        return (self.START_TEMPLATE.format(name=self.name, value=self.filename) +
+                '    "' +
+                '\\r\\n" \\\n    "'.join(self._read_lines()) +
+                '\\r\\n"' +
+                self.END_TEMPLATE.format(name=self.name, value=self.filename))
 
-PASSWORD_TEMPLATE = '''
+class StringItem(Item):
+    """An item provided as a string."""
+
+    def __init__(self, name: str, value: str) -> None:
+        self.name = name
+        self.value = value
+
+    TEMPLATE = '''
 #define {name} "{value}"
 '''
 
-def format_password(name: str, content: str) -> str:
-    """Format the definition of a macro containing a simple string."""
-    return PASSWORD_TEMPLATE.format(name=name, value=content)
+    def macro_definition(self) -> str:
+        """Format the definition of a macro containing a simple string."""
+        return self.TEMPLATE.format(name=self.name, value=self.value)
 
 HEADER = '''\
 /*
@@ -98,54 +132,47 @@ FOOTER = '''
 /* End of generated file */
 '''
 
-def generate(values: List[Tuple[str, str, str]], output: str) -> None:
+def generate(items: List[Item], output: str) -> None:
     """Generate C header file.
     """
     with open(output, 'w') as f:
         f.write(HEADER)
-        for (type_, name, parameter) in values:
-            if type_ == 'binary':
-                chunk = format_binary(name, parameter)
-            elif type_ == 'string':
-                chunk = format_string(name, parameter)
-            elif type_ == 'password':
-                chunk = format_password(name, parameter)
-            else:
-                raise Exception('Unknown type: ' + type_)
+        for item in items:
+            chunk = item.macro_definition()
             f.write(chunk)
         f.write(FOOTER)
 
-INPUT_ARGS = [
-    ("string", "TEST_CA_CRT_EC_PEM", DATA_FILES_PATH + "/test-ca2.crt"),
-    ("binary", "TEST_CA_CRT_EC_DER", DATA_FILES_PATH + "/test-ca2.crt.der"),
-    ("string", "TEST_CA_KEY_EC_PEM", DATA_FILES_PATH + "/test-ca2.key.enc"),
-    ("password", "TEST_CA_PWD_EC_PEM", "PolarSSLTest"),
-    ("binary", "TEST_CA_KEY_EC_DER", DATA_FILES_PATH + "/test-ca2.key.der"),
-    ("string", "TEST_CA_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/test-ca-sha256.crt"),
-    ("binary", "TEST_CA_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/test-ca-sha256.crt.der"),
-    ("string", "TEST_CA_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/test-ca-sha1.crt"),
-    ("binary", "TEST_CA_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/test-ca-sha1.crt.der"),
-    ("string", "TEST_CA_KEY_RSA_PEM", DATA_FILES_PATH + "/test-ca.key"),
-    ("password", "TEST_CA_PWD_RSA_PEM", "PolarSSLTest"),
-    ("binary", "TEST_CA_KEY_RSA_DER", DATA_FILES_PATH + "/test-ca.key.der"),
-    ("string", "TEST_SRV_CRT_EC_PEM", DATA_FILES_PATH + "/server5.crt"),
-    ("binary", "TEST_SRV_CRT_EC_DER", DATA_FILES_PATH + "/server5.crt.der"),
-    ("string", "TEST_SRV_KEY_EC_PEM", DATA_FILES_PATH + "/server5.key"),
-    ("binary", "TEST_SRV_KEY_EC_DER", DATA_FILES_PATH + "/server5.key.der"),
-    ("string", "TEST_SRV_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/server2-sha256.crt"),
-    ("binary", "TEST_SRV_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/server2-sha256.crt.der"),
-    ("string", "TEST_SRV_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/server2.crt"),
-    ("binary", "TEST_SRV_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/server2.crt.der"),
-    ("string", "TEST_SRV_KEY_RSA_PEM", DATA_FILES_PATH + "/server2.key"),
-    ("binary", "TEST_SRV_KEY_RSA_DER", DATA_FILES_PATH + "/server2.key.der"),
-    ("string", "TEST_CLI_CRT_EC_PEM", DATA_FILES_PATH + "/cli2.crt"),
-    ("binary", "TEST_CLI_CRT_EC_DER", DATA_FILES_PATH + "/cli2.crt.der"),
-    ("string", "TEST_CLI_KEY_EC_PEM", DATA_FILES_PATH + "/cli2.key"),
-    ("binary", "TEST_CLI_KEY_EC_DER", DATA_FILES_PATH + "/cli2.key.der"),
-    ("string", "TEST_CLI_CRT_RSA_PEM", DATA_FILES_PATH + "/cli-rsa-sha256.crt"),
-    ("binary", "TEST_CLI_CRT_RSA_DER", DATA_FILES_PATH + "/cli-rsa-sha256.crt.der"),
-    ("string", "TEST_CLI_KEY_RSA_PEM", DATA_FILES_PATH + "/cli-rsa.key"),
-    ("binary", "TEST_CLI_KEY_RSA_DER", DATA_FILES_PATH + "/cli-rsa.key.der"),
+ITEMS = [
+    TextFileItem("TEST_CA_CRT_EC_PEM", DATA_FILES_PATH + "/test-ca2.crt"),
+    BinaryFileItem("TEST_CA_CRT_EC_DER", DATA_FILES_PATH + "/test-ca2.crt.der"),
+    TextFileItem("TEST_CA_KEY_EC_PEM", DATA_FILES_PATH + "/test-ca2.key.enc"),
+    StringItem("TEST_CA_PWD_EC_PEM", "PolarSSLTest"),
+    BinaryFileItem("TEST_CA_KEY_EC_DER", DATA_FILES_PATH + "/test-ca2.key.der"),
+    TextFileItem("TEST_CA_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/test-ca-sha256.crt"),
+    BinaryFileItem("TEST_CA_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/test-ca-sha256.crt.der"),
+    TextFileItem("TEST_CA_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/test-ca-sha1.crt"),
+    BinaryFileItem("TEST_CA_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/test-ca-sha1.crt.der"),
+    TextFileItem("TEST_CA_KEY_RSA_PEM", DATA_FILES_PATH + "/test-ca.key"),
+    StringItem("TEST_CA_PWD_RSA_PEM", "PolarSSLTest"),
+    BinaryFileItem("TEST_CA_KEY_RSA_DER", DATA_FILES_PATH + "/test-ca.key.der"),
+    TextFileItem("TEST_SRV_CRT_EC_PEM", DATA_FILES_PATH + "/server5.crt"),
+    BinaryFileItem("TEST_SRV_CRT_EC_DER", DATA_FILES_PATH + "/server5.crt.der"),
+    TextFileItem("TEST_SRV_KEY_EC_PEM", DATA_FILES_PATH + "/server5.key"),
+    BinaryFileItem("TEST_SRV_KEY_EC_DER", DATA_FILES_PATH + "/server5.key.der"),
+    TextFileItem("TEST_SRV_CRT_RSA_SHA256_PEM", DATA_FILES_PATH + "/server2-sha256.crt"),
+    BinaryFileItem("TEST_SRV_CRT_RSA_SHA256_DER", DATA_FILES_PATH + "/server2-sha256.crt.der"),
+    TextFileItem("TEST_SRV_CRT_RSA_SHA1_PEM", DATA_FILES_PATH + "/server2.crt"),
+    BinaryFileItem("TEST_SRV_CRT_RSA_SHA1_DER", DATA_FILES_PATH + "/server2.crt.der"),
+    TextFileItem("TEST_SRV_KEY_RSA_PEM", DATA_FILES_PATH + "/server2.key"),
+    BinaryFileItem("TEST_SRV_KEY_RSA_DER", DATA_FILES_PATH + "/server2.key.der"),
+    TextFileItem("TEST_CLI_CRT_EC_PEM", DATA_FILES_PATH + "/cli2.crt"),
+    BinaryFileItem("TEST_CLI_CRT_EC_DER", DATA_FILES_PATH + "/cli2.crt.der"),
+    TextFileItem("TEST_CLI_KEY_EC_PEM", DATA_FILES_PATH + "/cli2.key"),
+    BinaryFileItem("TEST_CLI_KEY_EC_DER", DATA_FILES_PATH + "/cli2.key.der"),
+    TextFileItem("TEST_CLI_CRT_RSA_PEM", DATA_FILES_PATH + "/cli-rsa-sha256.crt"),
+    BinaryFileItem("TEST_CLI_CRT_RSA_DER", DATA_FILES_PATH + "/cli-rsa-sha256.crt.der"),
+    TextFileItem("TEST_CLI_KEY_RSA_PEM", DATA_FILES_PATH + "/cli-rsa.key"),
+    BinaryFileItem("TEST_CLI_KEY_RSA_DER", DATA_FILES_PATH + "/cli-rsa.key.der"),
 ]
 
 def main() -> None:
@@ -156,11 +183,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.list_dependencies:
-        files_list = [arg[2] for arg in INPUT_ARGS]
-        print(" ".join(files_list))
+        print(*(dependency
+                for item in ITEMS
+                for dependency in item.dependencies()))
         return
 
-    generate(INPUT_ARGS, args.output)
+    generate(ITEMS, args.output)
 
 if __name__ == '__main__':
     main()
