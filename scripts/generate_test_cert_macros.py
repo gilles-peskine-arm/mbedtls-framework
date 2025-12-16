@@ -9,9 +9,10 @@ Generate `tests/src/test_certs.h` which includes certficaties/keys/certificate l
 # SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
 
 
-import os
-import sys
 import argparse
+import os
+from typing import Iterator, List, Tuple
+
 import jinja2
 from mbedtls_framework.build_tree import guess_project_root
 
@@ -52,7 +53,7 @@ INPUT_ARGS = [
     ("binary", "TEST_CLI_KEY_RSA_DER", DATA_FILES_PATH + "/cli-rsa.key.der"),
 ]
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     default_output_path = os.path.join(TESTS_DIR, 'include', 'test', 'test_certs.h')
     parser.add_argument('--output', type=str, default=default_output_path)
@@ -64,10 +65,9 @@ def main():
         print(" ".join(files_list))
         return
 
-    generate(INPUT_ARGS, output=args.output)
+    generate(INPUT_ARGS, args.output)
 
-#pylint: disable=dangerous-default-value, unused-argument
-def generate(values=[], output=None):
+def generate(values: List[Tuple[str, str, str]], output: str) -> None:
     """Generate C header file.
     """
     template_loader = jinja2.FileSystemLoader(DATA_FILES_PATH)
@@ -75,14 +75,14 @@ def generate(values=[], output=None):
         loader=template_loader, lstrip_blocks=True, trim_blocks=True,
         keep_trailing_newline=True)
 
-    def read_as_c_array(filename):
+    def read_as_c_array(filename: str) -> Iterator[str]:
         with open(filename, 'rb') as f:
             data = f.read(12)
             while data:
                 yield ', '.join(['{:#04x}'.format(b) for b in data])
                 data = f.read(12)
 
-    def read_lines(filename):
+    def read_lines(filename: str) -> Iterator[str]:
         with open(filename) as f:
             try:
                 for line in f:
@@ -91,7 +91,7 @@ def generate(values=[], output=None):
                 print(filename)
                 raise
 
-    def put_to_column(value, position=0):
+    def put_to_column(value: str, position: int = 0) -> str:
         return ' '*position + value
 
     template_env.filters['read_as_c_array'] = read_as_c_array
@@ -105,4 +105,4 @@ def generate(values=[], output=None):
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    main()
