@@ -26,7 +26,8 @@ class ConfigMacros:
         """The set of internal option-like macros in this product."""
         return self._internal
 
-    def _load_file(self, filename: str) -> FrozenSet[str]:
+    @staticmethod
+    def _load_file(filename: str) -> FrozenSet[str]:
         """Load macro names from the given file."""
         with open(filename, encoding='ascii') as input_:
             return frozenset(line.strip()
