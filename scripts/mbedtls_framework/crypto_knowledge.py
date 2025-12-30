@@ -277,10 +277,16 @@ class AlgorithmCategory(enum.Enum):
     KEY_DERIVATION = 8
     KEY_AGREEMENT = 9
     PAKE = 10
+    XOF = 13
+
 
     def requires_key(self) -> bool:
         """Whether operations in this category are set up with a key."""
-        return self not in {self.HASH, self.KEY_DERIVATION}
+        return self not in {
+            self.HASH,
+            self.KEY_DERIVATION, # key passed separately from setup
+            self.XOF,
+        }
 
     def is_asymmetric(self) -> bool:
         """Whether operations in this category involve asymmetric keys."""
@@ -368,6 +374,8 @@ class Algorithm:
         'KEY_AGREEMENT': AlgorithmCategory.KEY_DERIVATION,
         'JPAKE': AlgorithmCategory.PAKE,
         'SPAKE2P': AlgorithmCategory.PAKE,
+        'ASCON_CXOF': AlgorithmCategory.XOF,
+        'ASCON_XOF': AlgorithmCategory.XOF,
     }
     for x in BLOCK_MAC_MODES:
         CATEGORY_FROM_HEAD[x] = AlgorithmCategory.MAC
