@@ -339,6 +339,7 @@ class Algorithm:
         'SHAKE256_512': AlgorithmCategory.HASH,
         'MD': AlgorithmCategory.HASH,
         'RIPEMD': AlgorithmCategory.HASH,
+        'ASCON_HASH': AlgorithmCategory.HASH,
         'ANY_HASH': AlgorithmCategory.HASH,
         'HMAC': AlgorithmCategory.MAC,
         'STREAM_CIPHER': AlgorithmCategory.CIPHER,
