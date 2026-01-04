@@ -411,6 +411,7 @@ enumerate
             'asymmetric_signature_wildcard': [self.algorithms],
             'asymmetric_encryption_algorithm': [],
             'pake_algorithm': [self.pake_algorithms],
+            'xof_algorithm': [],
             'other_algorithm': [],
             'lifetime': [self.lifetimes],
         } #type: Dict[str, List[Set[str]]]
