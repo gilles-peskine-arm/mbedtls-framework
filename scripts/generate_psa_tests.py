@@ -204,10 +204,11 @@ class OpFail:
     #pylint: disable=too-few-public-methods
 
     class Reason(enum.Enum):
-        NOT_SUPPORTED = 0
-        INVALID = 1
-        INCOMPATIBLE = 2
-        PUBLIC = 3
+        CONTROL = 0
+        NOT_SUPPORTED = 1
+        INVALID = 2
+        INCOMPATIBLE = 3
+        PUBLIC = 4
 
     def __init__(self, info: psa_information.Information) -> None:
         self.constructors = info.constructors
@@ -263,9 +264,13 @@ class OpFail:
         arguments.append(alg.expression)
         if category.is_asymmetric():
             arguments.append('1' if reason == self.Reason.PUBLIC else '0')
-        error = ('NOT_SUPPORTED' if reason == self.Reason.NOT_SUPPORTED else
-                 'INVALID_ARGUMENT')
-        arguments.append('PSA_ERROR_' + error)
+        if reason == self.Reason.CONTROL:
+            status = 'PSA_SUCCESS'
+        elif reason == self.Reason.NOT_SUPPORTED:
+            status = 'PSA_ERROR_NOT_SUPPORTED'
+        else:
+            status = 'PSA_ERROR_INVALID_ARGUMENT'
+        arguments.append(status)
         if reason == self.Reason.NOT_SUPPORTED:
             assert not_supported is not None
             tc.assumes_not_supported(not_supported)
@@ -312,8 +317,11 @@ class OpFail:
         for kt in self.key_types:
             key_is_compatible = kt.can_do(alg)
             if key_is_compatible and alg.can_do(category):
-                # Compatible key and operation, unsupported algorithm
+                # Compatible key and operation, good case or unsupported algorithm
                 for dep in psa_information.automatic_dependencies(alg.base_expression):
+                    yield self.make_test_case(alg, category,
+                                              self.Reason.CONTROL,
+                                              kt=kt)
                     yield self.make_test_case(alg, category,
                                               self.Reason.NOT_SUPPORTED,
                                               kt=kt, not_supported=dep)
