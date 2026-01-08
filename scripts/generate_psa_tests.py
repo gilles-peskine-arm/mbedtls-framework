@@ -218,6 +218,16 @@ class OpFail:
         self.key_types = [crypto_knowledge.KeyType(kt_expr)
                           for kt_expr in key_type_expressions]
 
+    @staticmethod
+    def good_primitive_for_pake(alg: crypto_knowledge.Algorithm) -> str:
+        """Return a sensible category for alg, if alg is a PAKE algorithm.
+
+        If alg is not a PAKE algorithm, return an arbitrary integer expression.
+        """
+        if alg.head == 'JPAKE':
+            return 'PSA_PAKE_PRIMITIVE(PSA_PAKE_PRIMITIVE_TYPE_ECC, PSA_ECC_FAMILY_SECP_R1, 256)'
+        return '0'
+
     def make_test_case(
             self,
             alg: crypto_knowledge.Algorithm,
@@ -262,6 +272,8 @@ class OpFail:
             key_material = kt.key_material(bits)
             arguments += [key_type, test_case.hex_string(key_material)]
         arguments.append(alg.expression)
+        if category == crypto_knowledge.AlgorithmCategory.PAKE:
+            arguments.append(self.good_primitive_for_pake(alg))
         if category.is_asymmetric():
             arguments.append('1' if reason == self.Reason.PUBLIC else '0')
         if reason == self.Reason.CONTROL:
