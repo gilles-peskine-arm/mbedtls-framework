@@ -356,10 +356,11 @@ class OpFail:
         algorithms = [crypto_knowledge.Algorithm(alg)
                       for alg in self.constructors.generate_expressions(
                               algorithm_constructors)]
-        categories = [
-            cat for cat in crypto_knowledge.AlgorithmCategory
-            if cat != crypto_knowledge.AlgorithmCategory.PAKE # not implemented yet
-        ]
+        supported_categories = set()
+        for alg in algorithms:
+            supported_categories.add(alg.category)
+        categories = sorted(supported_categories, key=lambda cat: cat.value)
+        assert categories # sanity check: at least one category detected
         for alg in algorithms:
             yield from self.test_cases_for_algorithm(alg, categories)
 
