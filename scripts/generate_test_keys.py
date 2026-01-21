@@ -27,14 +27,19 @@ def c_byte_array_literal_content(array_name: str, key_data: bytes) -> Iterator[s
 def convert_der_to_c(array_name: str, key_data: bytes) -> str:
     return ''.join(c_byte_array_literal_content(array_name, key_data))
 
-def get_key_type(key: str) -> str:
-    if re.match('PSA_KEY_TYPE_RSA_.*', key):
-        return "rsa"
-    elif re.match('PSA_KEY_TYPE_ECC_.*', key):
+def get_key_type(key_type: str) -> str:
+    if key_type.startswith('PSA_KEY_TYPE_ECC_'):
         return "ec"
+    elif key_type.startswith('PSA_KEY_TYPE_ML_DSA_'):
+        return "mldsa"
+    elif key_type.startswith('PSA_KEY_TYPE_ML_KEM_'):
+        return "mlkem"
+    elif key_type.startswith('PSA_KEY_TYPE_RSA_'):
+        return "rsa"
+    elif key_type.startswith('PSA_KEY_TYPE_SLH_DSA_'):
+        return "slhdsa"
     else:
-        print("Unhandled key type {}".format(key))
-        return "unknown"
+        raise Exception(f"Unhandled key type {key_type}")
 
 def get_ec_key_family(key: str) -> str:
     match = re.search(r'.*\((.*)\)', key)
@@ -77,6 +82,11 @@ def get_ec_curve_name(priv_key: str, bits: int) -> str:
     except KeyError:
         return ""
     return prefix + str(bits) + suffix
+
+def get_slh_dsa_family(key_type: str) -> str:
+    m = re.search(r'PSA_SLH_FAMILY_(\w+)', key_type)
+    assert m
+    return m.group(1).replace('_', '').lower()
 
 def get_look_up_table_entry(key_type: str, group_id_or_keybits: str,
                             priv_array_name: str, pub_array_name: str) -> Iterator[str]:
@@ -147,10 +157,6 @@ def collect_keys() -> Tuple[str, str]:
 
     for priv_key in priv_keys:
         key_type = get_key_type(priv_key)
-        # Ignore keys which are not EC or RSA
-        if key_type == "unknown":
-            continue
-
         pub_key = re.sub('_KEY_PAIR', '_PUBLIC_KEY', priv_key)
 
         for bits in ASYMMETRIC_KEY_DATA[priv_key]:
@@ -160,10 +166,13 @@ def collect_keys() -> Tuple[str, str]:
                 if curve == "":
                     continue
             # Create output array name
-            if key_type == "rsa":
-                array_name_base = "_".join(["test", key_type, str(bits)])
-            else:
+            if key_type == "ec":
                 array_name_base = "_".join(["test", key_type, curve])
+            elif key_type == "slhdsa":
+                family = get_slh_dsa_family(priv_key)
+                array_name_base = "_".join(["test", key_type, family, str(bits)])
+            else:
+                array_name_base = "_".join(["test", key_type, str(bits)])
             array_name_priv = array_name_base + "_priv"
             array_name_pub = array_name_base + "_pub"
             # Convert bytearray to C array
