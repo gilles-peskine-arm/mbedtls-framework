@@ -13,6 +13,7 @@ from enum import Enum
 
 from . import build_tree
 from . import psa_information
+from . import test_suite_preprocessor
 from . import typing_util
 
 HASHES_3_6 = {
@@ -47,6 +48,36 @@ class MissingDescription(Exception):
 
 class MissingFunction(Exception):
     pass
+
+
+class TestSuite:
+    """Information about a test suite."""
+
+    def _read_functions(self) -> Iterable[str]:
+        """List the test functions defined by this test suite."""
+        snippets = {}
+        _dependencies, func_info = \
+            test_suite_preprocessor.parse_function_file(self.path, snippets)
+        return func_info.keys()
+
+    def __init__(self, name: str, missing_ok: bool = False) -> None:
+        """Information about the given test suite.
+
+        `name` should be the base name of a .function file, e.g. ``test_suite_aes``.
+
+        If `missing_ok` is true, the constructor succeeds even if the test suite
+        doesn't exist.
+        """
+        root = build_tree.guess_project_root()
+        self.path = os.path.join(root, 'tests', 'suites', name + '.function')
+        self.exists = os.path.exists(self.path)
+        if self.exists:
+            self.functions = frozenset(self._read_functions())
+        elif missing_ok:
+            self.functions = frozenset()
+        else:
+            raise FileNotFoundError
+
 
 class TestCase:
     """An Mbed TLS test case."""
