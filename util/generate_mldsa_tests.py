@@ -5,6 +5,7 @@
 # Copyright The Mbed TLS Contributors
 # SPDX-License-Identifier: Apache-2.0 OR GPL-2.0-or-later
 
+import hashlib
 import sys
 from typing import Iterable, List, Optional
 
@@ -15,18 +16,32 @@ import scripts_path # pylint: disable=unused-import
 from mbedtls_framework import test_case
 from mbedtls_framework import test_data_generation
 
+
+PARAMETERS = dilithium_py.ml_dsa.default_parameters.DEFAULT_PARAMETERS
+
+class ML_DSA(dilithium_py.ml_dsa.ml_dsa.ML_DSA):
+    """ML_DSA class with a fixed RNG sequence."""
+
+    def __init__(self, parameter_set) -> None:
+        """Set up a fixed RNG sequence."""
+        super().__init__(parameter_set)
+        def pseudorandom_bytes(size: int) -> bytes:
+            self._random_iteration += 1
+            seed = str(self._random_iteration).encode('ascii')
+            return hashlib.shake_128(seed).digest(size)
+        self.random_bytes = pseudorandom_bytes
+        self.random_reset()
+
+    def random_reset(self):
+        """Reset the random generator."""
+        self._random_iteration = 0
+
+
 # ML_DSA instances for pure ML-DSA
 PURE = {
-    #44: dilithium_py.ml_dsa.ML_DSA_44,
-    #65: dilithium_py.ml_dsa.ML_DSA_65,
-    87: dilithium_py.ml_dsa.ML_DSA_87,
-}
-
-# ML_DSA instances for HashML-DSA
-HASH = {
-    #44: dilithium_py.ml_dsa.HASH_ML_DSA_44_WITH_SHA512,
-    #65: dilithium_py.ml_dsa.HASH_ML_DSA_65_WITH_SHA512,
-    87: dilithium_py.ml_dsa.HASH_ML_DSA_87_WITH_SHA512,
+    #44: ML_DSA(PARAMETERS['ML_DSA_44']),
+    #65: ML_DSA(PARAMETERS['ML_DSA_65']),
+    87: ML_DSA(PARAMETERS['ML_DSA_87']),
 }
 
 # Seeds (i.e. private keys) to test with.
@@ -42,9 +57,11 @@ class Key:
     def __init__(self, kl: int, seed: bytes) -> None:
         self.kl = kl #pylint: disable=invalid-name
         self.seed = seed
+        PURE[kl].random_reset()
         self.public, self.secret = PURE[kl]._keygen_internal(seed)
 
     def sign_message(self, message: bytes, deterministic: bool) -> bytes:
+        PURE[self.kl].random_reset()
         return PURE[self.kl].sign(self.secret, message,
                                   deterministic=deterministic)
 
