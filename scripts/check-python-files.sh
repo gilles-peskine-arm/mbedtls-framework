@@ -55,19 +55,16 @@ elif [ "$1" = "--can-mypy" ]; then
 fi
 
 echo 'Running pylint ...'
-# Temporary workaround while moving the bulk of abi_check.py to the framework
-# Check abi_check.py separately from the rest of the files, so it's not flagged
-# for code duplication.
-# Temporary workaround for the transitional wrapper framework/scripts/make_generated_files.py
-# as well. Once make_generated_files.py exists in both MbedTLS:development and
-# TF-PSA-Crypto:development branches, we will be able to remove
-# framework/scripts/make_generated_files.py and, consequently, this exception.
-find framework/scripts/*.py framework/scripts/mbedtls_framework/*.py scripts/*.py tests/scripts/*.py \
-     ! -path scripts/abi_check.py \
-     ! -path framework/scripts/make_generated_files.py \
-        -exec $PYTHON -m pylint {} + \
-     -o -exec $PYTHON -m pylint {} + || {
+find framework/scripts scripts tests/scripts -name '*.py' \
+     -exec $PYTHON -m pylint --disable=duplicate-code {} + || {
     echo >&2 "pylint reported errors"
+    ret=1
+}
+
+echo 'Running symilar_with_exceptions ...'
+find framework/scripts scripts tests/scripts -name '*.py' \
+     -exec $PYTHON framework/scripts/symilar_with_exceptions.py --duplicate=10 {} + || {
+    echo >&2 "symilar reported duplicate code"
     ret=1
 }
 
