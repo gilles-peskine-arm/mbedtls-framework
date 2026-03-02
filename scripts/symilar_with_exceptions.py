@@ -31,6 +31,20 @@ class SimilarWithExceptions(Similar):
          'scripts/abi_check.py'),
         ('framework/scripts/make_generated_files.py',
          'scripts/make_generated_files.py'),
+        ('framework/scripts/code_size_compare.py',
+         'scripts/code_size_compare.py'),
+        ('framework/scripts/ecp_comb_table.py',
+         'scripts/ecp_comb_table.py'),
+        ('framework/scripts/audit-validity-dates.py',
+         'tests/scripts/audit-validity-dates.py'),
+        ('framework/scripts/generate_server9_bad_saltlen.py',
+         'tests/scripts/generate_server9_bad_saltlen.py'),
+        ('framework/scripts/psa_collect_statuses.py',
+         'tests/scripts/psa_collect_statuses.py'),
+        ('framework/scripts/run_demos.py',
+         'tests/scripts/run_demos.py'),
+        ('framework/scripts/test_config_script.py',
+         'tests/scripts/test_config_script.py'),
     ]
 
     def __init__(self, *args, **kwargs) -> None:
