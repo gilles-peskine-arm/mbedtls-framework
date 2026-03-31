@@ -102,18 +102,6 @@ def execute_reference_driver_tests(results: Results, ref_component: str, driver_
 
 IgnoreEntry = typing.Union[str, typing.Pattern]
 
-def name_matches_pattern(name: str, str_or_re: IgnoreEntry) -> bool:
-    """Check if name matches a pattern, that may be a string or regex.
-    - If the pattern is a string, name must be equal to match.
-    - If the pattern is a regex, name must fully match.
-    """
-    # The CI's python is too old for re.Pattern
-    #if isinstance(str_or_re, re.Pattern):
-    if not isinstance(str_or_re, str):
-        return str_or_re.fullmatch(name) is not None
-    else:
-        return str_or_re == name
-
 def open_outcome_file(outcome_file: str) -> typing.TextIO:
     if outcome_file.endswith('.gz'):
         return gzip.open(outcome_file, 'rt', encoding='utf-8')
@@ -169,32 +157,54 @@ class Task:
                           r'.*\b(?:' + r'|'.join(words) + r')\b.*',
                           re.DOTALL)
 
+    _COMPILED_IGNORE_LIST_ENTRY_TYPE = \
+        typing.Tuple[typing.FrozenSet[str], typing.Optional[typing.Pattern]]
+
+    def _compile_ignore_list(self) -> None:
+        """Compile IGNORED_TESTS into a data structure that's faster to use."""
+        for suite, entries in self.IGNORED_TESTS.items():
+            names = frozenset(entry if isinstance(entry, str)
+                              for entry in entries)
+            patterns = [entry.pattern if not isinstance(entry, str)
+                        for entry in entries]
+            regex = None #type: Optional[Pattern]
+            if patterns:
+                regex = re.compile('|'.join(patterns))
+            self.ignored_tests[suite] = (names, regex)
+
     def __init__(self, options) -> None:
         """Pass command line options to the tasks.
 
         Each task decides which command line options it cares about.
         """
-        pass
+        self.ignored_tests = {} #type: typing.Dict[str, _COMPILED_IGNORE_LIST_ENTRY_TYPE]
+        self._compile_ignore_list()
 
     def section_name(self) -> str:
         """The section name to use in results."""
         raise NotImplementedError
 
-    def ignored_tests(self, test_suite: str) -> typing.Iterator[IgnoreEntry]:
+    _NO_IGNORE = (frozenset(), None) #type: _COMPILED_IGNORE_LIST_ENTRY_TYPE
+
+    def ignored_tests(self, test_suite: str) -> _COMPILED_IGNORE_LIST_ENTRY_TYPE:
         """Generate the ignore list for the specified test suite."""
-        if test_suite in self.IGNORED_TESTS:
-            yield from self.IGNORED_TESTS[test_suite]
+        if test_suite in self.ignored_tests:
+            return self.ignored_tests[test_suite]
         pos = test_suite.find('.')
         if pos != -1:
             base_test_suite = test_suite[:pos]
-            if base_test_suite in self.IGNORED_TESTS:
-                yield from self.IGNORED_TESTS[base_test_suite]
+            if base_test_suite in self.ignored_tests:
+                return self.ignored_tests[base_test_suite]
+        return self._NO_IGNORE
 
     def is_test_case_ignored(self, test_suite: str, test_string: str) -> bool:
         """Check if the specified test case is ignored."""
-        for str_or_re in self.ignored_tests(test_suite):
-            if name_matches_pattern(test_string, str_or_re):
-                return True
+        ignore = ignored_tests(test_suite)
+        if not ignore: return False
+        if test_string in ignore[0]:
+            return True
+        if ignore[1] and ignore[1].match(test_string):
+            return True
         return False
 
     def run(self, results: Results, outcomes: Outcomes):
