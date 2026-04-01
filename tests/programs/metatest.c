@@ -40,6 +40,7 @@
 #include <mbedtls/platform_util.h>
 #include "test/helpers.h"
 #include "test/threading_helpers.h"
+#include "test/fork_helpers.h"
 #include "test/macros.h"
 #include "test/memory.h"
 
@@ -48,6 +49,22 @@
 
 #if defined(MBEDTLS_THREADING_C)
 #include "threading_internal.h"
+#endif
+
+/* A subset of platforms where the library defines
+ * MBEDTLS_PLATFORM_IS_UNIXLIKE, which guards the implementation of
+ * mbedtls_test_fork_run_child().
+ *
+ * We don't use MBEDTLS_PLATFORM_IS_UNIXLIKE here because it is defined
+ * in an internal library header that may not be in the include path
+ * when compiling this test program.
+ */
+#if defined(unix) || defined(__unix) || defined(__unix__) ||  \
+    (defined(__APPLE__) && defined(__MACH__))
+#define METATEST_HAVE_FORK
+#include <signal.h>
+#include <sys/resource.h>
+#include <unistd.h>
 #endif
 
 
@@ -252,6 +269,310 @@ static void test_memory_poison(const char *name)
 
 
 /****************************************************************/
+/* fork() */
+/****************************************************************/
+
+#if defined(METATEST_HAVE_FORK)
+/* Write data to a file descriptor.
+ *
+ * This function does not use stdio so it doesn't need to worry about
+ * e.g. heap exhaustion and it is async-signal-safe.
+ *
+ * Return 1 on success, 0 on failure.
+ */
+static int really_write(int fd, const unsigned char *buf, size_t len)
+{
+    while (len > 0) {
+        ssize_t n = write(fd, buf, len);
+        if (n <= 0) {
+            return 0;
+        }
+        len -= n;
+        buf += n;
+    }
+    return 1;
+}
+
+/* Call this function in the child process if it failed to arrange the
+ * conditions of the test.
+ *
+ * The child notifies the parent of the problem by sending SIGUSR1 to the
+ * parent process.
+ */
+#if defined(__GNUC__)
+__attribute__((__noreturn__))
+#endif
+static void child_failed_unexpectedly(const char *reason)
+{
+    unsigned char newline = '\n';
+    really_write(2, (const unsigned char *) reason, strlen(reason));
+    really_write(2, &newline, 1);
+    kill(getppid(), SIGUSR1);
+    _exit(0);
+}
+
+/* Handler for the signal sent by the child to indicate that it failed
+ * to arrange the conditions of the test. */
+#if defined(__GNUC__)
+__attribute__((__noreturn__))
+#endif
+static void handle_child_failure(int signum)
+{
+    (void) signum;
+    const unsigned char message[] = "Child failed unexpectedly.\n";
+    really_write(2, message, sizeof(message) - 1);
+    _exit(0);
+}
+
+typedef struct {
+    mbedtls_test_result_t result;
+    size_t written_length;
+    size_t reported_length;
+    unsigned char *pipe_content;
+    size_t pipe_content_length;
+    char close_pipe;
+    int signal;
+    int exit;
+} child_instructions_t;
+
+/* Child callback function for testing mbedtls_test_fork_run_child(). */
+static void child_callback(void *param,
+                           unsigned char *output, size_t output_size,
+                           size_t *output_length)
+{
+    child_instructions_t *instructions = param;
+
+    /* Defined in fork_helpers.c */
+    extern int mbedtls_test_fork_helper_child_pipe_fd;
+
+    if (!really_write(mbedtls_test_fork_helper_child_pipe_fd,
+                      instructions->pipe_content,
+                      instructions->pipe_content_length)) {
+        child_failed_unexpectedly("write(pipe_content)");
+    }
+    if (instructions->close_pipe) {
+        close(mbedtls_test_fork_helper_child_pipe_fd);
+    }
+
+    (void) output_size;
+    memset(output, 'c', instructions->written_length);
+    *output_length = instructions->reported_length;
+
+    if (instructions->result == MBEDTLS_TEST_RESULT_SKIPPED) {
+        TEST_ASSUME(!"metatesting skipping in child");
+    } else if (instructions->result == MBEDTLS_TEST_RESULT_FAILED) {
+        TEST_FAIL("metatesting failure in child");
+    }
+
+exit:
+    if (instructions->signal > 0) {
+        kill(getpid(), instructions->signal);
+    }
+    if (instructions->exit >= 0) {
+        _exit(instructions->exit);
+    }
+}
+
+static int alloc_child_content(child_instructions_t *instructions,
+                               size_t size)
+{
+    instructions->pipe_content = mbedtls_calloc(1, size);
+    instructions->pipe_content_length = size;
+    if (instructions->pipe_content == NULL) {
+        mbedtls_fprintf(stderr, "%s: calloc failed\n", __func__);
+        return 0;
+    }
+    return 1;
+}
+
+static int is_char_buffer(const unsigned char *output,
+                          size_t from, size_t to,
+                          unsigned char expected)
+{
+    for (size_t i = from; i < to; i++) {
+        if (output[i] != expected) {
+            mbedtls_fprintf(stderr, "%s: output[i]=%u but expected %u\n",
+                            __func__,
+                            (unsigned) output[i], (unsigned) expected);
+            return 0;
+        }
+    }
+    return 1;
+}
+#endif /* METATEST_HAVE_FORK */
+
+/* Entry point for testing mbedtls_test_fork_run_child().
+ *
+ * This goes into more depth than most metatests for two reasons.
+ *
+ * One reason is that mbedtls_test_fork_run_child() is more complex
+ * than most test interfaces, involving a callback function and calling
+ * many system functions that can fail.
+ *
+ * Another reason is that debugging the child process is difficult, so
+ * we want to have confidence that errors are reported accurately.
+ */
+static void meta_test_fork(const char *name)
+{
+#if defined(METATEST_HAVE_FORK)
+    mbedtls_test_result_t expected_result = MBEDTLS_TEST_RESULT_FAILED;
+    child_instructions_t instructions = {
+        .result = MBEDTLS_TEST_RESULT_SUCCESS,
+        .written_length = 0,
+        .reported_length = 0,
+        .pipe_content = NULL,
+        .pipe_content_length = 0,
+        .close_pipe = 0,
+        .signal = 0,
+        .exit = -1,
+    };
+    /* Larger than the default value of PIPE_BUF on Linux */
+    unsigned char output[5000];
+    memset(output, 'p', sizeof(output));
+    size_t output_length = SIZE_MAX;
+    size_t expected_length = 0;
+    const char *expected_result_substring = "";
+    int delta;
+
+    if (sscanf(name, "fork_pass_%zu", &instructions.reported_length) == 1) {
+        if (instructions.reported_length <= sizeof(output)) {
+            instructions.written_length = instructions.reported_length;
+            expected_result = MBEDTLS_TEST_RESULT_SUCCESS;
+            expected_length = instructions.reported_length;
+        } else {
+            instructions.written_length = sizeof(output);
+        }
+    } else if (!strcmp(name, "fork_skip")) {
+        instructions.result = MBEDTLS_TEST_RESULT_SKIPPED;
+        expected_result = MBEDTLS_TEST_RESULT_SKIPPED;
+        instructions.written_length = 42;
+        instructions.reported_length = 42;
+        expected_result_substring = "metatesting skipping in child";
+    } else if (!strcmp(name, "fork_fail")) {
+        instructions.result = MBEDTLS_TEST_RESULT_FAILED;
+        instructions.written_length = 42;
+        instructions.reported_length = 42;
+        expected_result_substring = "metatesting failure in child";
+    } else if (!strcmp(name, "fork_pipe_close")) {
+        instructions.close_pipe = 1;
+    } else if (sscanf(name, "fork_pipe_write_%u_%zu_%n",
+                      &instructions.result,
+                      &instructions.pipe_content_length,
+                      &delta) == 2) {
+        instructions.pipe_content_length += 1;
+        if (!alloc_child_content(&instructions, instructions.pipe_content_length)) {
+            return;
+        }
+        instructions.pipe_content[0] = instructions.result;
+        memset(instructions.pipe_content + 1, 'b',
+               instructions.pipe_content_length - 1);
+        if (!strcmp(name + delta, "continue")) {
+        } else if (!strcmp(name + delta, "close")) {
+            instructions.close_pipe = 1;
+        } else if (sscanf(name + delta, "exit_%d", &instructions.exit) == 1) {
+            if (instructions.exit == 0 &&
+                instructions.result == MBEDTLS_TEST_RESULT_SUCCESS) {
+                expected_result = MBEDTLS_TEST_RESULT_SUCCESS;
+                expected_length = instructions.pipe_content_length - 1;
+            }
+        } else if (!strcmp(name + delta, "kill")) {
+            instructions.signal = SIGKILL;
+        } else {
+            mbedtls_fprintf(stderr,
+                            "%s: fork_pipe_write action not recognized: %s\n",
+                            __func__, name + delta);
+            return;
+        }
+    } else if (sscanf(name, "fork_exit_%d", &instructions.exit) == 1) {
+    } else if (!strcmp(name, "fork_signal_HUP")) {
+        instructions.signal = SIGHUP;
+        expected_result_substring = "wstatus";
+    } else if (!strcmp(name, "fork_signal_KILL")) {
+        instructions.signal = SIGKILL;
+        expected_result_substring = "wstatus";
+    } else if (!strcmp(name, "fork_limit_proc")) {
+        struct rlimit rlim = { 1, 1 };
+        setrlimit(RLIMIT_NPROC, &rlim);
+        expected_result_substring = "pid";
+    } else if (!strcmp(name, "fork_limit_file")) {
+        struct rlimit rlim = { 0, 0 };
+        setrlimit(RLIMIT_NOFILE, &rlim);
+        expected_result_substring = "pipe(";
+    } else {
+        mbedtls_fprintf(stderr, "%s: test name not recognized: %s\n",
+                        __func__, name);
+        return;
+    }
+
+    fflush(stdout);
+    fflush(stderr);
+    signal(SIGUSR1, handle_child_failure);
+
+    int ret = mbedtls_test_fork_run_child(child_callback, &instructions,
+                                          output, sizeof(output),
+                                          &output_length);
+
+    signal(SIGUSR1, SIG_DFL);
+
+    if (mbedtls_test_get_result() != MBEDTLS_TEST_RESULT_SUCCESS) {
+        mbedtls_printf("\n  test result: %d at %s:%d:\"%s\"\n",
+                       mbedtls_test_get_result(),
+                       mbedtls_test_get_filename(),
+                       mbedtls_test_get_line_no(),
+                       mbedtls_test_get_test());
+    }
+
+    if (expected_result == MBEDTLS_TEST_RESULT_SUCCESS && ret != 0) {
+        mbedtls_fprintf(stderr, "%s: expected ret=0, got ret=%d\n",
+                        __func__, ret);
+        mbedtls_test_info_reset();
+        return;
+    } else if (expected_result != MBEDTLS_TEST_RESULT_SUCCESS && ret == 0) {
+        mbedtls_fprintf(stderr, "%s: expected ret!=0, got ret=%d\n",
+                        __func__, ret);
+        mbedtls_test_info_reset();
+        return;
+    }
+
+    if (expected_result != mbedtls_test_get_result()) {
+        mbedtls_fprintf(stderr, "%s: expected result=%d, got result=%d\n",
+                        __func__, expected_result, mbedtls_test_get_result());
+        mbedtls_test_info_reset();
+        return;
+    }
+
+    if (expected_result != MBEDTLS_TEST_RESULT_SUCCESS) {
+        if (!strstr(mbedtls_test_get_test(), expected_result_substring)) {
+            mbedtls_fprintf(stderr,
+                            "%s: expected substring \"%s\" not found in failure info\n",
+                            __func__, expected_result_substring);
+            mbedtls_test_info_reset();
+            return;
+        }
+    }
+
+    if (!is_char_buffer(output, 0, expected_length, 'c')) {
+        mbedtls_test_info_reset();
+        return;
+    }
+    if (!is_char_buffer(output, expected_length, sizeof(output), 'p')) {
+        mbedtls_test_info_reset();
+        return;
+    }
+
+    if (expected_result == MBEDTLS_TEST_RESULT_SUCCESS) {
+        TEST_FAIL("got expected success");
+    }
+
+exit:
+    ;
+
+#else /* METATEST_HAVE_FORK */
+    (void) name;
+#endif /* METATEST_HAVE_FORK */
+}
+
+/****************************************************************/
 /* Threading */
 /****************************************************************/
 
@@ -427,6 +748,49 @@ metatest_t metatests[] = {
     { "test_memory_poison_7_0_1_w", "poison", test_memory_poison },
     { "test_memory_poison_7_1_2_r", "poison", test_memory_poison },
     { "test_memory_poison_7_1_2_w", "poison", test_memory_poison },
+    { "fork_pass_0", "fork", meta_test_fork },
+    { "fork_pass_42", "fork", meta_test_fork },
+    { "fork_pass_5000", "fork", meta_test_fork },
+    { "fork_pass_999999", "fork", meta_test_fork },
+    { "fork_skip", "fork", meta_test_fork },
+    { "fork_fail", "fork", meta_test_fork },
+    { "fork_pipe_close", "fork", meta_test_fork },
+    { "fork_pipe_write_0_0_continue", "fork", meta_test_fork },
+    { "fork_pipe_write_0_1_continue", "fork", meta_test_fork },
+    { "fork_pipe_write_1_0_continue", "fork", meta_test_fork },
+    { "fork_pipe_write_1_1_continue", "fork", meta_test_fork },
+    { "fork_pipe_write_2_0_continue", "fork", meta_test_fork },
+    { "fork_pipe_write_1_1_continue", "fork", meta_test_fork },
+    { "fork_pipe_write_0_0_close", "fork", meta_test_fork },
+    { "fork_pipe_write_0_1_close", "fork", meta_test_fork },
+    { "fork_pipe_write_1_0_close", "fork", meta_test_fork },
+    { "fork_pipe_write_1_0_close", "fork", meta_test_fork },
+    { "fork_pipe_write_2_0_close", "fork", meta_test_fork },
+    { "fork_pipe_write_2_1_close", "fork", meta_test_fork },
+    { "fork_pipe_write_0_0_exit_0", "fork", meta_test_fork },
+    { "fork_pipe_write_0_1_exit_0", "fork", meta_test_fork },
+    { "fork_pipe_write_1_0_exit_0", "fork", meta_test_fork },
+    { "fork_pipe_write_1_1_exit_0", "fork", meta_test_fork },
+    { "fork_pipe_write_2_0_exit_0", "fork", meta_test_fork },
+    { "fork_pipe_write_2_1_exit_0", "fork", meta_test_fork },
+    { "fork_pipe_write_0_0_exit_1", "fork", meta_test_fork },
+    { "fork_pipe_write_0_1_exit_1", "fork", meta_test_fork },
+    { "fork_pipe_write_1_0_exit_1", "fork", meta_test_fork },
+    { "fork_pipe_write_1_1_exit_1", "fork", meta_test_fork },
+    { "fork_pipe_write_2_0_exit_1", "fork", meta_test_fork },
+    { "fork_pipe_write_2_1_exit_1", "fork", meta_test_fork },
+    { "fork_pipe_write_0_0_kill", "fork", meta_test_fork },
+    { "fork_pipe_write_0_1_kill", "fork", meta_test_fork },
+    { "fork_pipe_write_1_0_kill", "fork", meta_test_fork },
+    { "fork_pipe_write_1_1_kill", "fork", meta_test_fork },
+    { "fork_pipe_write_2_0_kill", "fork", meta_test_fork },
+    { "fork_pipe_write_2_1_kill", "fork", meta_test_fork },
+    { "fork_exit_0", "fork", meta_test_fork },
+    { "fork_exit_1", "fork", meta_test_fork },
+    { "fork_signal_HUP", "fork", meta_test_fork },
+    { "fork_signal_KILL", "fork", meta_test_fork },
+    { "fork_limit_proc", "fork", meta_test_fork },
+    { "fork_limit_file", "fork", meta_test_fork },
     { "mutex_lock_not_initialized", "pthread", mutex_lock_not_initialized },
     { "mutex_unlock_not_initialized", "pthread", mutex_unlock_not_initialized },
 #if MBEDTLS_THREADING_INTERNAL_VERSION <= 0x04000000

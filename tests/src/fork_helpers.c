@@ -63,6 +63,11 @@ static int probably_running_under_valgrind(void)
     return 0;
 }
 
+/* Do not use this unless you are a metatest that is testing
+ * what happens in mbedtls_test_fork_run_child() if the child
+ * messes with the pipe. */
+int mbedtls_test_fork_helper_child_pipe_fd;
+
 #if defined(__GNUC__)
 __attribute__((__noreturn__))
 #endif
@@ -86,6 +91,7 @@ static void run_child(
         goto write_done;
     }
 
+    mbedtls_test_fork_helper_child_pipe_fd = write_fd;
     child_callback(param, buf, size, &length);
     TEST_LE_U(length, size);
 
