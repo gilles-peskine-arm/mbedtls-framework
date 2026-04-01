@@ -105,7 +105,9 @@ const char *mbedtls_test_get_test(void);
  *
  * \return          The current test filename
  */
-const char *mbedtls_get_test_filename(void);
+const char *mbedtls_test_get_filename(void);
+/* Backward compatibility alias with a convention-breaking name */
+#define mbedtls_get_test_filename() mbedtls_test_get_filename()
 
 /**
  * \brief           Get the current test file line number (for failure / skip)

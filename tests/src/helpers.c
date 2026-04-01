@@ -96,7 +96,7 @@ const char *mbedtls_test_get_test(void)
 
     return test;
 }
-const char *mbedtls_get_test_filename(void)
+const char *mbedtls_test_get_filename(void)
 {
     const char *filename;
 
