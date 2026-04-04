@@ -131,14 +131,22 @@ def read_outcome_file(outcome_file: str) -> Outcomes:
     return outcomes
 
 
+_COMPILED_IGNORE_LIST_ENTRY_TYPE = \
+    typing.Tuple[typing.FrozenSet[str], typing.Optional[typing.Pattern]]
+_COMPILED_IGNORE_LIST_TYPE = typing.Dict[str, _COMPILED_IGNORE_LIST_ENTRY_TYPE]
+
+
 class Task:
     """Base class for outcome analysis tasks."""
+
+    _IGNORE_LIST_TYPE = typing.Dict[str, typing.List[IgnoreEntry]]
 
     # Override the following in child classes.
     # Map test suite names (with the test_suite_prefix) to a list of ignored
     # test cases. Each element in the list can be either a string or a regex;
     # see the `name_matches_pattern` function.
-    IGNORED_TESTS = {} #type: typing.Dict[str, typing.List[IgnoreEntry]]
+    UNCOVERED_TESTS: _IGNORE_LIST_TYPE = {}
+    IGNORED_TESTS: _IGNORE_LIST_TYPE = {}
 
     @staticmethod
     def _has_word_re(words: typing.Iterable[str],
@@ -157,28 +165,28 @@ class Task:
                           r'.*\b(?:' + r'|'.join(words) + r')\b.*',
                           re.DOTALL)
 
-    _COMPILED_IGNORE_LIST_ENTRY_TYPE = \
-        typing.Tuple[typing.FrozenSet[str], typing.Optional[typing.Pattern]]
-
-    def _compile_ignore_list(self) -> None:
-        """Compile IGNORED_TESTS into a data structure that's faster to use."""
-        for suite, entries in self.IGNORED_TESTS.items():
-            names = frozenset(entry if isinstance(entry, str)
-                              for entry in entries)
-            patterns = [entry.pattern if not isinstance(entry, str)
-                        for entry in entries]
-            regex = None #type: Optional[Pattern]
+    @staticmethod
+    def _compile_ignore_list(source: _IGNORE_LIST_TYPE) -> _COMPILED_IGNORE_LIST_TYPE:
+        """Compile an ignore list into a data structure that's faster to use."""
+        compiled: _COMPILED_IGNORE_LIST_TYPE = {}
+        for suite, entries in source.items():
+            names = frozenset(entry for entry in entries
+                              if isinstance(entry, str))
+            patterns = [entry.pattern for entry in entries
+                        if not isinstance(entry, str)]
+            regex: typing.Optional[typing.Pattern] = None
             if patterns:
                 regex = re.compile('|'.join(patterns))
-            self.ignored_tests[suite] = (names, regex)
+            compiled[suite] = (names, regex)
+        return compiled
 
-    def __init__(self, options) -> None:
+    def __init__(self, _options) -> None:
         """Pass command line options to the tasks.
 
         Each task decides which command line options it cares about.
         """
-        self.ignored_tests = {} #type: typing.Dict[str, _COMPILED_IGNORE_LIST_ENTRY_TYPE]
-        self._compile_ignore_list()
+        self.ignored_tests = self._compile_ignore_list(self.IGNORED_TESTS)
+        self.uncovered_tests = self._compile_ignore_list(self.UNCOVERED_TESTS)
 
     def section_name(self) -> str:
         """The section name to use in results."""
@@ -186,21 +194,23 @@ class Task:
 
     _NO_IGNORE = (frozenset(), None) #type: _COMPILED_IGNORE_LIST_ENTRY_TYPE
 
-    def ignored_tests(self, test_suite: str) -> _COMPILED_IGNORE_LIST_ENTRY_TYPE:
-        """Generate the ignore list for the specified test suite."""
-        if test_suite in self.ignored_tests:
-            return self.ignored_tests[test_suite]
+    def _tests_in(self,
+                  compiled: _COMPILED_IGNORE_LIST_TYPE,
+                  test_suite: str) -> _COMPILED_IGNORE_LIST_ENTRY_TYPE:
+        """Retrieve the compiled ignore list for the specified test suite."""
+        if test_suite in compiled:
+            return compiled[test_suite]
         pos = test_suite.find('.')
         if pos != -1:
             base_test_suite = test_suite[:pos]
-            if base_test_suite in self.ignored_tests:
-                return self.ignored_tests[base_test_suite]
+            if base_test_suite in compiled:
+                return compiled[base_test_suite]
         return self._NO_IGNORE
 
-    def is_test_case_ignored(self, test_suite: str, test_string: str) -> bool:
+    def lookup_test_case(self, db: _COMPILED_IGNORE_LIST_TYPE,
+                         test_suite: str, test_string: str) -> bool:
         """Check if the specified test case is ignored."""
-        ignore = ignored_tests(test_suite)
-        if not ignore: return False
+        ignore = self._tests_in(db, test_suite)
         if test_string in ignore[0]:
             return True
         if ignore[1] and ignore[1].match(test_string):
@@ -249,22 +259,25 @@ class CoverageTask(Task):
                       suite_case in comp_outcomes.failures
                       for comp_outcomes in outcomes.values())
             (test_suite, test_description) = suite_case.split(';')
-            ignored = self.is_test_case_ignored(test_suite, test_description)
+            uncovered = self.lookup_test_case(self.uncovered_tests,
+                                              test_suite, test_description)
 
-            if not hit and not ignored:
+            if not hit and not uncovered:
                 if self.full_coverage:
                     results.error('Test case not executed: {}', suite_case)
                 else:
                     results.warning('Test case not executed: {}', suite_case)
-            elif hit and ignored:
+            elif hit and uncovered:
                 # If a test case is no longer always skipped, we should remove
                 # it from the ignore list.
                 if self.full_coverage:
-                    results.error('Test case was executed but marked as ignored for coverage: {}',
-                                  suite_case)
+                    results.error(
+                        'Test case was executed but marked as uncovered for coverage: {}',
+                        suite_case)
                 else:
-                    results.warning('Test case was executed but marked as ignored for coverage: {}',
-                                    suite_case)
+                    results.warning(
+                        'Test case was executed but marked as uncovered for coverage: {}',
+                        suite_case)
 
 
 class DriverVSReference(Task):
@@ -323,15 +336,16 @@ class DriverVSReference(Task):
                full_test_suite in self.ignored_suites:
                 continue
 
-            # For ignored test cases inside test suites, just remember and:
+            # For uncovered test cases inside test suites, just remember and:
             # don't issue an error if they're skipped with drivers,
             # but issue an error if they're not (means we have a bad entry).
-            ignored = self.is_test_case_ignored(full_test_suite, test_string)
+            uncovered = self.lookup_test_case(self.uncovered_tests,
+                                              full_test_suite, test_string)
 
-            if not ignored and not suite_case in driver_outcomes.successes:
+            if not uncovered and not suite_case in driver_outcomes.successes:
                 results.error("SKIP/FAIL -> PASS: {}", suite_case)
-            if ignored and suite_case in driver_outcomes.successes:
-                results.error("uselessly ignored: {}", suite_case)
+            if uncovered and suite_case in driver_outcomes.successes:
+                results.error("uselessly uncovered: {}", suite_case)
 
 
 # Set this to False if a consuming branch can't achieve full test coverage
