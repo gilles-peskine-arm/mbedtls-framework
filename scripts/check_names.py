@@ -797,8 +797,6 @@ class TFPSACryptoCodeParser(CodeParser):
     ]
 
     H_GENERATED_EXCLUDE = [
-        "core/psa_crypto_driver_wrappers.h",
-        "dispatch/psa_crypto_driver_wrappers.h"
     ]
 
     H_TEST_DRIVERS = [
@@ -969,7 +967,7 @@ class MBEDTLSCodeParser(CodeParser):
                 "library/*.c",
                 "3rdparty/everest/library/everest.c",
                 "3rdparty/everest/library/x25519.c"
-            ], ["library/psa_crypto_driver_wrappers.h"])
+            ], [])
         else:
             all_macros = {"public": [], "internal": [], "private":[]}
             all_macros["public"] = self.parse_macros([
