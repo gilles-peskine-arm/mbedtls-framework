@@ -75,6 +75,7 @@ void mbedtls_test_psa_purge_key_cache(void)
 
 const char *mbedtls_test_helper_is_psa_leaking(void)
 {
+#if !defined(MBEDTLS_PSA_CRYPTO_NO_KEY_STORE)
     mbedtls_psa_stats_t stats;
 
     mbedtls_psa_get_stats(&stats);
@@ -99,6 +100,7 @@ const char *mbedtls_test_helper_is_psa_leaking(void)
     if (stats.locked_slots != 0) {
         return "Some slots are still marked as locked.";
     }
+#endif
 
     return NULL;
 }

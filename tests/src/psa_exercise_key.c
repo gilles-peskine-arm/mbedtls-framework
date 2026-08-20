@@ -84,9 +84,11 @@ static int check_key_attributes_sanity(mbedtls_svc_key_id_t key,
             (MBEDTLS_SVC_KEY_ID_GET_KEY_ID(id) <=
              PSA_KEY_ID_VOLATILE_MAX));
     } else {
+#if !defined(MBEDTLS_PSA_CRYPTO_NO_KEY_STORE)
         TEST_ASSERT(
             (PSA_KEY_ID_USER_MIN <= MBEDTLS_SVC_KEY_ID_GET_KEY_ID(id)) &&
             (MBEDTLS_SVC_KEY_ID_GET_KEY_ID(id) <= PSA_KEY_ID_USER_MAX));
+#endif
     }
 #if defined(MBEDTLS_PSA_CRYPTO_SE_C)
     /* MBEDTLS_PSA_CRYPTO_SE_C does not support thread safety. */
