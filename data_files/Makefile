@@ -2203,6 +2203,10 @@ cert_example_wildcard.crt: server1.key
 	$(MBEDTLS_CERT_WRITE) subject_key=server1.key subject_name="C=NL, O=PolarSSL, CN=*.example.com" serial=12 issuer_crt=$(test_ca_crt) issuer_key=$(test_ca_key_file_rsa) issuer_pwd=$(test_ca_pwd_rsa) not_before=20190210144406 not_after=20290210144406 md=SHA1 version=3 output_file=$@
 all_final += cert_example_wildcard.crt
 
+cert_example_wildcard_utf8.crt: server1.key
+	$(MBEDTLS_CERT_WRITE) subject_key=server1.key subject_name="C=NL, O=PolarSSL, CN=*.accentué.com" serial=12 issuer_crt=$(test_ca_crt) issuer_key=$(test_ca_key_file_rsa) issuer_pwd=$(test_ca_pwd_rsa) not_before=20190210144406 not_after=20290210144406 md=SHA1 version=3 output_file=$@
+all_final += cert_example_wildcard_utf8.crt
+
 # OpenSSL-generated certificates for comparison
 # Also provide certificates in DER format to allow
 # direct binary comparison using e.g. dumpasn1
