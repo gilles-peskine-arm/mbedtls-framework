@@ -169,13 +169,15 @@ int mbedtls_test_fork_run_child(
      * a stack address inside that process. */
     char filename[sizeof("mbedtls_test_fork_run_child-%ld-%p.tmp") +
                   3 * sizeof(long) + 2 * sizeof(void *)];
-    TEST_LE_S(1, mbedtls_snprintf(filename, sizeof(filename),
-                                  "mbedtls_test_fork_run_child-%ld-%p.tmp",
-                                  (long) getpid(), (void *) filename));
+    int ret = mbedtls_snprintf(filename, sizeof(filename),
+                               "mbedtls_test_fork_run_child-%ld-%p.tmp",
+                               (long) getpid(), (void *) filename);
+    TEST_LE_S(1, ret);
+    TEST_LE_S(ret, sizeof(filename));
     file = fopen(filename, "w+");
     TEST_ASSERT_ERRNO(file != NULL);
     mbedtls_test_fork_child_fd = fileno(file);
-    unlink(filename);
+    TEST_ASSERT_ERRNO(unlink(filename) == 0);
 
     /* The temporary file will contain the test result from the child,
      * followed by the output from the child callback.
@@ -226,7 +228,8 @@ int mbedtls_test_fork_run_child(
     TEST_ASSERT_ERRNO(!ferror(file));
     /* Error out if the child wrote more than child_output_size bytes */
     int c = getc(file);
-    TEST_ASSERT(c == -1);
+    TEST_ASSERT(c == EOF);
+    TEST_ASSERT_ERRNO(!ferror(file));
     /* All good! */
     *child_output_length = len;
 
