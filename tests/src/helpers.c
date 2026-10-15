@@ -11,6 +11,31 @@
 #include <errno.h>
 #include <string.h>
 
+#if defined(__XTENSA__) && defined(MBEDTLS_TEST_XTENSA_QEMU_SEMIHOSTING)
+#include <reent.h>
+
+/* The ESP32 QEMU libgloss library omits _read_r. Its weak fallback always
+ * fails, so the test runner cannot read its .datax file. Xtensa SIMCALL 3
+ * reads from the host file descriptor in a3 into the buffer in a4. */
+_ssize_t _read_r(struct _reent *reent, int fd, void *buffer, size_t length)
+{
+    register int result __asm__("a2") = 3;
+    register int error __asm__("a3") = fd;
+    register void *data __asm__("a4") = buffer;
+    register size_t count __asm__("a5") = length;
+
+    __asm__ volatile ("simcall"
+                      : "+a" (result), "+a" (error)
+                      : "a" (data), "a" (count)
+                      : "memory");
+
+    if (result < 0) {
+        reent->_errno = error;
+    }
+    return result;
+}
+#endif /* __XTENSA__ && MBEDTLS_TEST_XTENSA_QEMU_SEMIHOSTING */
+
 #if defined(MBEDTLS_PSA_INJECT_ENTROPY)
 #include <psa/crypto.h>
 #include <test/psa_crypto_helpers.h>
